@@ -2641,6 +2641,8 @@ void YglQuadOffset_in(vdp2draw_struct *input, YglTexture *output, YglCache *c, i
   program->logwin0 = input->WindowArea0;
   program->bwin1 = input->bEnWin1;
   program->logwin1 = input->WindowArea1;
+  program->bwinsp = input->bEnSpriteWin;
+  program->logwinsp = input->WindowAreaSprite;
   program->winmode = input->LogicWin;
   program->lineTexture = input->lineTexture;
   program->specialcolormode = input->specialcolormode;
@@ -2832,6 +2834,8 @@ int YglQuad_in(vdp2draw_struct *input, YglTexture *output, YglCache *c, int cash
   program->logwin0 = input->WindowArea0;
   program->bwin1 = input->bEnWin1;
   program->logwin1 = input->WindowArea1;
+  program->bwinsp = input->bEnSpriteWin;
+  program->logwinsp = input->WindowAreaSprite;
   program->winmode = input->LogicWin;
   program->lineTexture = input->lineTexture;
   program->blendmode = input->blendmode;
@@ -3040,6 +3044,8 @@ int YglQuadRbg0(vdp2draw_struct *input, YglTexture *output, YglCache *c, YglCach
   program->logwin0 = input->WindowArea0;
   program->bwin1 = input->bEnWin1;
   program->logwin1 = input->WindowArea1;
+  program->bwinsp = input->bEnSpriteWin;
+  program->logwinsp = input->WindowAreaSprite;
   program->winmode = input->LogicWin;
   program->lineTexture = input->lineTexture;
   program->specialcolormode = input->specialcolormode;
@@ -3156,8 +3162,12 @@ int YglQuadRbg0(vdp2draw_struct *input, YglTexture *output, YglCache *c, YglCach
   return 0;
 }
 
+
+extern float vdp1wratio;
+extern float vdp1hratio;
+
 //////////////////////////////////////////////////////////////////////////////
-void YglEraseWriteVDP1( int isDraw ) {
+void YglEraseWriteVDP1(void) {
 
   u16 color;
   int priority;
@@ -3165,16 +3175,8 @@ void YglEraseWriteVDP1( int isDraw ) {
   if (_Ygl->vdp1FrameBuff[0] == 0)
     return;
 
-  int target = 0;
-  if (isDraw) {
-    target = _Ygl->vdp1FrameBuff[_Ygl->drawframe];
-  }
-  else {
-    target = _Ygl->vdp1FrameBuff[_Ygl->readframe];
-  }
-
   glBindFramebuffer(GL_FRAMEBUFFER, _Ygl->vdp1fbo);
-  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target, 0);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, _Ygl->vdp1FrameBuff[_Ygl->readframe], 0);
   glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, _Ygl->rboid_depth);
   glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, _Ygl->rboid_stencil);
 
@@ -3232,9 +3234,31 @@ void YglEraseWriteVDP1( int isDraw ) {
   }
   // alpha |= priority;
 
+
+
+  float wrate = (float)_Ygl->width / (float)_Ygl->rwidth;
+  float hrate = (float)_Ygl->height / (float)_Ygl->rheight;
+
+  if (Vdp1Regs->TVMR & 0x01) {
+    wrate *= 2.0f;
+  }
+
+  float interlace = 1.0;
+  if (Vdp1Regs->FBCR & 0x8) {
+    interlace *= 2.0f;
+  }
+
+  float bottom = (_Ygl->rheight - (((Vdp1Regs->EWRR & 0x1FF) + 1 ) * vdp1hratio * interlace ))  * hrate;
+  float right = (((Vdp1Regs->EWRR>>9) & 0x7F)<<3)  * vdp1wratio * wrate;
+  float top = (_Ygl->rheight - ((Vdp1Regs->EWLR & 0x1FF) * vdp1hratio * interlace)) * hrate;
+  float left = (((Vdp1Regs->EWLR >> 9) & 0x7F)<<3) * vdp1wratio * wrate;
+
+  glEnable(GL_SCISSOR_TEST);
+  glScissor(left, bottom , right-left, top-bottom );
+
   glClearColor((color & 0x1F) / 31.0f, ((color >> 5) & 0x1F) / 31.0f, ((color >> 10) & 0x1F) / 31.0f, alpha / 255.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-  FRAMELOG("YglEraseWriteVDP1xx: clear %d\n", target);
+  FRAMELOG("YglEraseWriteVDP1xx: clear %d\n", _Ygl->readframe);
 
   if (_Ygl->bWriteCpuFrameBuffer)
   {
@@ -3415,11 +3439,11 @@ void YglSetVdp2Window()
   int bwin0, bwin1, bspwin;
   // if( _Ygl->bUpdateWindow && (_Ygl->win0_vertexcnt != 0 || _Ygl->win1_vertexcnt != 0 ) )
 
-  bwin0 = (Vdp2Regs->WCTLC >> 9) & 0x01;
-  bwin1 = (Vdp2Regs->WCTLC >> 11) & 0x01;
-  bspwin = ((Vdp2Regs->WCTLC >> 13) & 0x01); // ((Vdp2Regs->SPCTL >> 4) & 0x03) == 0x01;
-  if ((_Ygl->win0_vertexcnt != 0 || _Ygl->win1_vertexcnt != 0 || bspwin))
-  {
+    bwin0 = (Vdp2Regs->WCTLC >> 9) &0x01;
+    bwin1 = (Vdp2Regs->WCTLC >> 11) &0x01;
+    bspwin = ((Vdp2Regs->SPCTL >> 4) & 0x03) == 0x01;
+   if( (_Ygl->win0_vertexcnt != 0 || _Ygl->win1_vertexcnt != 0 || bspwin) )
+   {
 
     Ygl_uniformWindow(&_Ygl->windowpg);
     glUniformMatrix4fv(_Ygl->windowpg.mtxModelView, 1, GL_FALSE, (GLfloat *)&_Ygl->mtxModelView.m[0][0]);
@@ -3451,13 +3475,14 @@ void YglSetVdp2Window()
       glDrawArrays(GL_TRIANGLE_STRIP, 0, _Ygl->win1_vertexcnt);
     }
 
-    // 8. sprite window
-    if (bspwin)
-    {
-      glStencilMask(0x04);
-      glStencilFunc(GL_ALWAYS, 0x04, 0x04);
-      YglRenderFrameBufferShadow();
-    }
+      // 8. sprite window
+      if (bspwin) {
+        glStencilMask(0x04);
+        glStencilFunc(GL_ALWAYS, 0x04, 0x04);
+        YglRenderFrameBufferShadow();
+        glBindTexture(GL_TEXTURE_2D, YglTM->textureID_in[YglTM->current]);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+      }
 
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glDepthMask(GL_TRUE);
@@ -4419,8 +4444,9 @@ int YglSetupWindow(YglProgram *prg)
     }
   }
 
+
   // Transparent Window
-  if (prg->bwin0 || prg->bwin1 || prg->bwinsp)
+  if (prg->bwin0 || prg->bwin1 || prg->bwinsp )
   {
     u8 bwin1 = prg->bwin1 << 1;
     u8 logwin1 = prg->logwin1 << 1;
@@ -4609,8 +4635,7 @@ void YglRenderDestinationAlpha(void)
           glDisable(GL_BLEND);
         }
 
-        if ((level->prg[j].bwin0 != 0 || level->prg[j].bwin1 != 0) || (level->prg[j].blendmode != VDP2_CC_NONE && ccwindow))
-        {
+        if ((level->prg[j].bwin0 != 0 || level->prg[j].bwin1 != 0 || level->prg[j].bwinsp != 0 ) || (level->prg[j].blendmode != VDP2_CC_NONE && ccwindow)){
           YglSetupWindow(&level->prg[j]);
         }
 
@@ -4623,9 +4648,8 @@ void YglRenderDestinationAlpha(void)
         }
         glDrawArrays(GL_TRIANGLES, 0, level->prg[j].currentQuad / 2);
 
-        if (level->prg[j].bwin0 != 0 || level->prg[j].bwin1 != 0 || (level->prg[j].blendmode != VDP2_CC_NONE && ccwindow))
-        {
-          level->prg[j].matrix = (GLfloat *)dmtx.m;
+        if ( (level->prg[j].bwin0 != 0 || level->prg[j].bwin1 != 0 || level->prg[j].bwinsp != 0)  || (level->prg[j].blendmode != VDP2_CC_NONE && ccwindow)){
+          level->prg[j].matrix = (GLfloat*)dmtx.m;
           YglCleanUpWindow(&level->prg[j]);
         }
 

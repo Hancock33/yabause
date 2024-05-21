@@ -1728,6 +1728,7 @@ typedef struct scsp_t
 {
   u32 mem4b;            // 4mbit memory
   u32 mvol;             // master volume
+  u32 dac18b;
 
   u32 rbl;              // ring buffer lenght
   u32 rbp;              // ring buffer address (pointer)

@@ -4,12 +4,12 @@
 [submodule "yabause/src/android/oboe"]
 	path = yabause/src/android/oboe
 	url = https://github.com/google/oboe
-[submodule "yabause/src/retro_arena/Json/src/Json"]
-	path = yabause/src/retro_arena/Json/src/Json
-	url = https://github.com/nlohmann/json.git
 [submodule "yabause/src/vulkan/src/glm"]
 	path = yabause/src/vulkan/src/glm
 	url = https://github.com/g-truc/glm.git
+[submodule "yabause/src/retro_arena/Json/src/Json"]
+	path = yabause/src/retro_arena/Json/src/Json
+	url = https://github.com/nlohmann/json.git
 [submodule "yabause/src/libchdr-prefix/src/libchdr"]
 	path = yabause/src/libchdr-prefix/src/libchdr
 	url = https://github.com/devmiyax/libchdr.git

@@ -30,8 +30,8 @@ endif()
 
 ExternalProject_Add(
   libchdr
-  GIT_REPOSITORY "https://github.com/devmiyax/libchdr.git"
-  GIT_TAG "5a642352731a5abb1322bf0749b0e1822ebb393a"
+  #GIT_REPOSITORY "https://github.com/devmiyax/libchdr.git"
+  #GIT_TAG "5a642352731a5abb1322bf0749b0e1822ebb393a"
   #PATCH_COMMAND  git apply "${CMAKE_SOURCE_DIR}/CMake/Packages/libchdr.patch"
   CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/libchdr 
               -DCMAKE_BUILD_TYPE:STRING=Release 

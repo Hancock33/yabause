@@ -168,9 +168,13 @@ if (YAB_WANT_DYNAREC_DEVMIYAX)
 	  sh2_dynarec_devmiyax/opcodes.h)
 
 		if (MSVC) # NASM
-	  	set(YABAUSE_LIBRARIES 
-			  ${YABAUSE_LIBRARIES} 
-			  ${CMAKE_CURRENT_SOURCE_DIR}/sh2_dynarec_devmiyax/dynalib )
+		
+		if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+	  		set(YABAUSE_LIBRARIES ${YABAUSE_LIBRARIES} ${CMAKE_CURRENT_SOURCE_DIR}/sh2_dynarec_devmiyax/dynalib_x86_64 )
+		else()			
+			set(YABAUSE_LIBRARIES ${YABAUSE_LIBRARIES} ${CMAKE_CURRENT_SOURCE_DIR}/sh2_dynarec_devmiyax/dynalib )
+		endif()
+
 		else() # UNIX(GAS)
 			if("${CMAKE_SYSTEM_PROCESSOR}" MATCHES  "arm")
 				enable_language(ASM-ATT)
@@ -194,6 +198,7 @@ if (YAB_USE_SSF)
 
   if (ZLIB_FOUND)
     add_definitions(-DYAB_WANT_SSF=1)
+    set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-error=incompatible-pointer-types -Wno-int-conversion -Wno-implicit-function-declaration -D_LARGEFILE_SOURCE" )
     include_directories(${ZLIB_INCLUDE_DIRS})
     set(YABAUSE_LIBRARIES ${YABAUSE_LIBRARIES} ${ZLIB_LIBRARIES})
 
@@ -768,7 +773,7 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
   include(vulkan/external_shaderc.cmake)
 	include(vulkan/external_glfw.cmake)
 	set(LIBVULKAN_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/include)
-	set(LIBVULKAN ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/lib/x86/vulkan-1.lib )
+	set(LIBVULKAN ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/lib/x86_64/vulkan-1.lib )
 else()
   set( SHADERC_INCLUDE_DIR ${ANDROID_NDK}/sources/third_party/shaderc/include  )
   set( SHADERC_LIBRARY_DIR ${ANDROID_NDK}/sources/third_party/shaderc/libs/c++_shared/${ANDROID_ABI}  )
@@ -942,10 +947,10 @@ else ()
 	set(yabause_SOURCES ${yabause_SOURCES} sock-dummy.c thr-dummy.c)
 endif ()
 
-set(ENABLE_SANITIZER OFF CACHE STRING "Enable/Disable Sanitizer" )
+set(ENABLE_SANITIZER OFF CACHE BOOL "Enable/Disable Sanitizer" )
 if(ENABLE_SANITIZER)
-set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address  -fsanitize=leak" )
-set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address  -fsanitize=leak" )
+set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address  -fsanitize=leak -fsanitize-recover=address" )
+set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address  -fsanitize=leak -fsanitize-recover=address" )
 endif()
 
 if( CMAKE_CXX_COMPILER_ID MATCHES "Clang" )

@@ -3162,7 +3162,6 @@ int YglQuadRbg0(vdp2draw_struct *input, YglTexture *output, YglCache *c, YglCach
   return 0;
 }
 
-
 extern float vdp1wratio;
 extern float vdp1hratio;
 
@@ -3655,6 +3654,8 @@ void YglUpdateVdp2Reg()
   {
     _Ygl->fbu_.u_sprite_window = 0;
   }
+  
+  _Ygl->fbu_.u_dir = 0;
 
   if (_Ygl->framebuffer_uniform_id_ == 0)
   {

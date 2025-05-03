@@ -50,7 +50,6 @@ extern "C" {
     #include <glsm/glsm.h>
 #elif defined(__ANDROID__)
     #include <GLES3/gl31.h>
-    #include <GLES3/gl3ext.h>
     #include <EGL/egl.h>
 
 
@@ -388,14 +387,10 @@ typedef enum
    PG_VDP2_DRAWFRAMEBUFF_EUQAL_ADD_HBLANK,
    PG_VDP2_DRAWFRAMEBUFF_MORE_ADD_HBLANK,
    PG_VDP2_DRAWFRAMEBUFF_MSB_ADD_HBLANK,
-
    PG_VDP2_DRAWFRAMEBUFF_SHADOW,
-
    PG_VDP2_DRAWFRAMEBUFF_ADDCOLOR_SHADOW,
-
    PG_VULKAN_WINDOW,
    PG_VULKAN_BLIT,
-
    PG_VDP1_SYSTEM_CLIP,
    PG_VDP1_USER_CLIP,
    PG_VFP1_GOURAUDSAHDING_CLIP_INSIDE,
@@ -410,16 +405,12 @@ typedef enum
    PG_VFP1_SHADOW_CLIP_OUTSIDE,
    PG_VFP1_GOURAUDSAHDING_SPD_CLIP_INSIDE,
    PG_VFP1_GOURAUDSAHDING_SPD_CLIP_OUTSIDE,
-
    PG_VDP2_NORMAL_CRAM_DSTALPHA,
    PG_NORMAL_DSTALPHA,
-
    PG_VDP2_NOBLEND,
    PG_VDP2_NOBLEND_CRAM,
-
    PG_VDP2_BACK,
    PG_VDP2_CRAM_SPECIAL_PRIORITY,
-
    PG_MAX,
 } YglPipelineId;
 
@@ -456,6 +447,7 @@ typedef struct  {
  int u_sprite_window;
  float u_from;
  float u_to;
+ int u_dir;
 } UniformFrameBuffer;
 
 /*

@@ -3162,7 +3162,6 @@ int YglQuadRbg0(vdp2draw_struct *input, YglTexture *output, YglCache *c, YglCach
   return 0;
 }
 
-
 extern float vdp1wratio;
 extern float vdp1hratio;
 
@@ -3655,6 +3654,8 @@ void YglUpdateVdp2Reg()
   {
     _Ygl->fbu_.u_sprite_window = 0;
   }
+  
+  _Ygl->fbu_.u_dir = 0;
 
   if (_Ygl->framebuffer_uniform_id_ == 0)
   {
@@ -4647,7 +4648,7 @@ void YglRenderDestinationAlpha(void)
           glVertexAttribPointer(level->prg[j].vaid, 4, GL_FLOAT, GL_FALSE, 0, level->prg[j].vertexAttribute);
         }
         glDrawArrays(GL_TRIANGLES, 0, level->prg[j].currentQuad / 2);
-
+        
         if ( (level->prg[j].bwin0 != 0 || level->prg[j].bwin1 != 0 || level->prg[j].bwinsp != 0)  || (level->prg[j].blendmode != VDP2_CC_NONE && ccwindow)){
           level->prg[j].matrix = (GLfloat*)dmtx.m;
           YglCleanUpWindow(&level->prg[j]);

@@ -83,9 +83,9 @@
     <string name="dynrec_cpu_interface">Old Dynamic Recompiler(fast but less accurate)</string>
     <string name="software_cpu_interface">Interpreter(slow but more accurate)</string>
 
-    <string name="opengl_video_interface">OpenGL</string>
+    <string name="opengl_video_interface">OpenGL ES 3.1</string>
     <string name="software_video_interface">Software</string>
-    <string name="vulkan_video_interface">Vulkan(Experimental)</string>
+    <string name="vulkan_video_interface">Vulkan</string>
     <string name="onscreen_pad">On-Screen Pad</string>
     <string name="select_from_other_directory">Select from other directory.</string>
 
@@ -384,6 +384,20 @@
     <string name="use_sh2_cache">
         Use SH2 cache
     </string>
+
+    <string name="restore_defaults">
+        Restore defaults
+    </string>
+    <string name="last_play_game">Last play game:</string>
+    <string name="device">Device:</string>
+    <string name="auto_backup_memory_sync">Auto backup sync</string>
+    <string name="auto_backup_sync">Auto backup sync</string>
+    <string name="msg_fail_to_upload_backup_data_to_cloud">Fail to upload backup data to cloud</string>
+    <string name="msg_fail_to_unzip_backup_data_from_cloud">Fail to unzip backup data from cloud</string>
+    <string name="msg_success_to_download_backup_data_from_cloud">Success to download backup data from cloud</string>
+    <string name="msg_fail_to_download_backup_data_from_cloud">Fail to download backup data from cloud</string>
+    <string name="msg_fail_to_zip_backup_data">Fail to zip backup data</string>
+    <string name="msg_success_to_upload_backup_data_to_cloud">Success to upload backup data to cloud</string>
 
 </resources>
 	

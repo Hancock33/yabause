@@ -732,6 +732,7 @@ void VDP2SetFrameLimit(int mode) {
     lastticks = YabauseGetTicks();
     break;
   }
+  VideoSetSetting(VDP_SETTING_FRAMELIMIT_MODE, mode);
 }
 
 void frameSkipAndLimit() {
@@ -1278,18 +1279,19 @@ void vdp2VBlankOUT(void) {
   }
 
   VIDCore->Vdp2DrawStart();
-
+  
   // VBlank Erase
   if (Vdp1External.vbalnk_erase ||  // VBlank Erace (VBE1) 
-    ((Vdp1Regs->FBCR & 2) == 0)){  // One cycle mode
+    ((Vdp1Regs->FBCR & 2) == 0)) {  // One cycle mode
     VIDCore->Vdp1EraseWrite();
   }
+
 
   // Frame Change
   if (Vdp1External.swap_frame_buffer == 1)
   {
     vdp1_frame++;
-    if (Vdp1External.manualerase){  // Manual Erace (FCM1 FCT0) Just before frame changing
+    if (Vdp1External.manualerase) {  // Manual Erace (FCM1 FCT0) Just before frame changing
       VIDCore->Vdp1EraseWrite();
       Vdp1External.manualerase = 0;
     }

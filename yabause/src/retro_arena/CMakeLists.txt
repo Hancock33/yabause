@@ -31,7 +31,7 @@ include( ${CMAKE_SOURCE_DIR}/CMake/Packages/external_libpng.cmake )
 ExternalProject_Add(
      Json
      PREFIX ${CMAKE_CURRENT_BINARY_DIR}/Json
-     URL https://github.com/nlohmann/json/archive/v3.2.0.zip
+     #URL https://github.com/nlohmann/json/archive/v3.2.0.zip
      #disable following
      CONFIGURE_COMMAND "" BUILD_COMMAND "" INSTALL_DIR "" INSTALL_COMMAND ""
      )

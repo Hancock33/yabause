@@ -127,7 +127,9 @@ ScspDsp scsp_dsp = { 0 };
 char ssf_track_name[256] = { 0 };
 char ssf_artist[256] = { 0 };
 
-
+u32 saved_scsp_cycles = 0;//fixed point
+volatile u64 saved_m68k_cycles = 0;//fixed point
+static u32 g_scsp_main_mode = 1;
 
 extern char * getLastShaderError();
 
@@ -189,9 +191,6 @@ int YabauseInit(yabauseinit_struct *init)
    YabThreadSetCurrentThreadAffinityMask(YabThreadGetFastestCpuIndex());
   }
 
-  yabsys.saved_m68k_cycles = 0;
-  yabsys.saved_scsp_cycles = 0;
-
   yabsys.use_cpu_affinity = init->use_cpu_affinity;
 
   yabsys.use_sh2_cache = init->use_sh2_cache;
@@ -231,7 +230,7 @@ int YabauseInit(yabauseinit_struct *init)
    if (yabsys.extend_backup) {
      FILE * pbackup;
      bupfilename = init->buppath;
-     pbackup = fopen(bupfilename, "a+b");
+     pbackup = fopen_utf8(bupfilename, "a+b");
      if (pbackup == NULL) {
        YabSetError(YAB_ERR_CANNOTINIT, _("InternalBackup"));
        return -1;
@@ -324,7 +323,7 @@ int YabauseInit(yabauseinit_struct *init)
       return -1;
    }
 
-   yabsys.scsp_main_mode = init->scsp_main_mode;
+   g_scsp_main_mode = init->scsp_main_mode;
    if (ScspInit(init->sndcoretype, init->scsp_sync_count_per_frame, init->scsp_main_mode ) != 0)
    {
       YabSetError(YAB_ERR_CANNOTINIT, _("SCSP/M68K"));
@@ -660,8 +659,9 @@ u64 getM68KCounter();
 u64 g_m68K_dec_cycle = 0;
 
 
+
 int YabauseEmulate(void) {
-   int oneframeexec = 0;
+  int oneframeexec = 0;
    yabsys.frame_count++;
    PlayRecorder_proc(yabsys.frame_count);
 
@@ -842,14 +842,13 @@ int YabauseEmulate(void) {
       if(!use_new_scsp)
       {
          int cycles;
-
          PROFILE_START("68K");
          cycles = m68kcycles;
-         yabsys.saved_centicycles += m68kcenticycles;
-         if (yabsys.saved_centicycles >= 100) {
-            cycles++;
-            yabsys.saved_centicycles -= 100;
-         }
+         //yabsys.saved_centicycles += m68kcenticycles;
+         //if (yabsys.saved_centicycles >= 100) {
+         //   cycles++;
+         //   yabsys.saved_centicycles -= 100;
+         //}
          M68KExec(cycles);
          PROFILE_STOP("68K");
       }
@@ -857,19 +856,19 @@ int YabauseEmulate(void) {
       {
 
          u32 m68k_integer_part = 0, scsp_integer_part = 0;
-         yabsys.saved_m68k_cycles += m68k_cycles_per_deciline;
-         m68k_integer_part = yabsys.saved_m68k_cycles >> SCSP_FRACTIONAL_BITS;
+         saved_m68k_cycles += m68k_cycles_per_deciline;
+         m68k_integer_part = saved_m68k_cycles >> SCSP_FRACTIONAL_BITS;
          M68KExec(m68k_integer_part);
-         yabsys.saved_m68k_cycles -= m68k_integer_part << SCSP_FRACTIONAL_BITS;
+         saved_m68k_cycles -= m68k_integer_part << SCSP_FRACTIONAL_BITS;
 
-         yabsys.saved_scsp_cycles += scsp_cycles_per_deciline;
-         scsp_integer_part = yabsys.saved_scsp_cycles >> SCSP_FRACTIONAL_BITS;
+         saved_scsp_cycles += scsp_cycles_per_deciline;
+         scsp_integer_part = saved_scsp_cycles >> SCSP_FRACTIONAL_BITS;
          new_scsp_exec(scsp_integer_part);
-         yabsys.saved_scsp_cycles -= scsp_integer_part << SCSP_FRACTIONAL_BITS;
+         saved_scsp_cycles -= scsp_integer_part << SCSP_FRACTIONAL_BITS;
 #else
       {
-        yabsys.saved_m68k_cycles  += m68k_cycles_per_deciline;
-        setM68kCounter(yabsys.saved_m68k_cycles);
+        saved_m68k_cycles  += m68k_cycles_per_deciline;
+        setM68kCounter(saved_m68k_cycles);
 #endif
       }
       PROFILE_STOP("Total Emulation");
@@ -895,7 +894,7 @@ int YabauseEmulate(void) {
 #ifdef ANDROID
        pfm = fopen("/mnt/sdcard/cpu.txt", "w");
 #else
-       pfm = fopen("cpu.txt", "w");
+       pfm = fopen_utf8("cpu.txt", "w");
 #endif
      }
      if (pfm) {
@@ -910,7 +909,7 @@ int YabauseEmulate(void) {
 #endif
 #endif
 #if DYNAREC_DEVMIYAX
-   if (SH2Core->id == 3) SH2DynShowSttaics(MSH2, SSH2);
+   //if (SH2Core->id == 3) SH2DynShowSttaics(MSH2, SSH2);
 #endif
 
 #ifdef CACHE_STATICS
@@ -931,10 +930,11 @@ int YabauseEmulate(void) {
 
 void SyncCPUtoSCSP() {
   //LOG("[SH2] WAIT SCSP");
-  if (yabsys.scsp_main_mode == 0) {
+  if (g_scsp_main_mode == 0) {
+    setM68kCounter(1);
     YabWaitEventQueue(q_scsp_finish);
-    yabsys.saved_m68k_cycles = 0;
-    setM68kCounter(yabsys.saved_m68k_cycles);
+    saved_m68k_cycles = 0;
+    setM68kCounter(saved_m68k_cycles);
     YabAddEventQueue(q_scsp_frame_start, 0);
   }
   //LOG("[SH2] START SCSP");

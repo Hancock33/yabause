@@ -59,7 +59,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 #include "vidogl.h"
 #include "vidsoft.h"
 #include <atomic>
+#if defined(HAVE_VULKAN)
 #include "vulkan/VIDVulkanCInterface.h"
+#endif
 
 u8 * Vdp2Ram;
 u8 * Vdp2ColorRam;
@@ -732,6 +734,7 @@ void VDP2SetFrameLimit(int mode) {
     lastticks = YabauseGetTicks();
     break;
   }
+  VideoSetSetting(VDP_SETTING_FRAMELIMIT_MODE, mode);
 }
 
 void frameSkipAndLimit() {
@@ -1255,12 +1258,14 @@ void vdp2VBlankOUT(void) {
     previous_skipped = 0;
     //VIDCore = saved;
     if( saved != NULL ){
-
-      if (VIDCore->id == VIDCORE_VULKAN) {
 #if defined(HAVE_VULKAN)
+      if (VIDCore->id == VIDCORE_VULKAN) {
+
         VIDCore->Vdp2DrawStart = VIDVulkanVdp2DrawStart;
         VIDCore->Vdp2DrawEnd = VIDVulkanVdp2DrawEnd;
         VIDCore->Vdp2DrawScreens = VIDVulkanVdp2DrawScreens;
+#else
+      if (0) {
 #endif
       }
       else if (VIDCore->id == VIDCORE_OGL) {
@@ -1278,18 +1283,19 @@ void vdp2VBlankOUT(void) {
   }
 
   VIDCore->Vdp2DrawStart();
-
+  
   // VBlank Erase
   if (Vdp1External.vbalnk_erase ||  // VBlank Erace (VBE1) 
-    ((Vdp1Regs->FBCR & 2) == 0)){  // One cycle mode
+    ((Vdp1Regs->FBCR & 2) == 0)) {  // One cycle mode
     VIDCore->Vdp1EraseWrite();
   }
+
 
   // Frame Change
   if (Vdp1External.swap_frame_buffer == 1)
   {
     vdp1_frame++;
-    if (Vdp1External.manualerase){  // Manual Erace (FCM1 FCT0) Just before frame changing
+    if (Vdp1External.manualerase) {  // Manual Erace (FCM1 FCT0) Just before frame changing
       VIDCore->Vdp1EraseWrite();
       Vdp1External.manualerase = 0;
     }
@@ -1307,10 +1313,11 @@ void vdp2VBlankOUT(void) {
     // if Plot Trigger mode == 0x02 draw start
     if (Vdp1External.frame_change_plot == 1 || Vdp1External.status == VDP1_STATUS_RUNNING ){
       FRAMELOG("[VDP1] frame_change_plot == 1 start drawing immidiatly", Vdp1Regs->EDSR);
-      LOG("[VDP1] Start Drawing");
+      LOG("[VDP1] Start Drawing %d", yabsys.LineCount);
       Vdp1Regs->addr = 0;
       Vdp1Regs->COPR = 0;
       Vdp1Draw();
+      LOG("[VDP1] End Drawing %d", yabsys.LineCount);
       isrender = 1;
     }
   }
@@ -1330,7 +1337,7 @@ void vdp2VBlankOUT(void) {
   }
 
 #if defined(YAB_ASYNC_RENDERING)
-  if (isrender){
+  if (isrender) {
     YabAddEventQueue(vdp1_rcv_evqueue, 0);
   }
 #else
@@ -1338,18 +1345,20 @@ void vdp2VBlankOUT(void) {
 #endif
 
   if (Vdp2Regs->TVMD & 0x8000) {
-     FRAMELOG("Vdp2DrawScreens");
+     FRAMELOG("Vdp2DrawScreens Start %d", yabsys.LineCount);
     VIDCore->Vdp2DrawScreens();
+    FRAMELOG("Vdp2DrawScreens End %d", yabsys.LineCount);
   }
 
   if (isrender){
-     FRAMELOG("Vdp1DrawEnd");
+     FRAMELOG("Vdp1DrawEnd %d", yabsys.LineCount);
     VIDCore->Vdp1DrawEnd();
 #if !defined(YAB_ASYNC_RENDERING)
     yabsys.wait_line_count += 45;
     yabsys.wait_line_count %= yabsys.VBlankLineCount;
 #endif
   }
+
 
    FPSDisplay();
 #if 1

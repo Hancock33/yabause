@@ -1586,10 +1586,10 @@ str     w1, [x19, x0]
 
 opdesc STSMPR,	(7*4),0xff,0,0xff,0xff,0xff
 opfunc STSMPR
-mov w4, #0
-ldr w0, [x19, x4]
+mov w22, #0
+ldr w0, [x19, x22]
 sub w0, w0, #4
-str w0, [x19, x4]
+str w0, [x19, x22]
 LDR_PR w1
 CALL_SETMEM_LONG
 
@@ -2217,8 +2217,3 @@ MAC_W.L10:
   lsr     x0, x1, 32
   stp     w0, w1, [x19, 76]
 MAC_W.FINISH:
-
-
-  
-  
-  

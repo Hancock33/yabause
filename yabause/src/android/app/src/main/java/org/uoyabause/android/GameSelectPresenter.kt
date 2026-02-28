@@ -39,14 +39,13 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.view.ContextThemeWrapper
 import androidx.core.app.ActivityCompat
 import androidx.fragment.app.Fragment
 import androidx.multidex.MultiDexApplication
 import androidx.preference.PreferenceManager
 import com.firebase.ui.auth.AuthUI
 import com.firebase.ui.auth.AuthUI.IdpConfig.GoogleBuilder
-import com.firebase.ui.auth.ErrorCodes
+import com.firebase.ui.auth.AuthUI.IdpConfig.AppleBuilder
 import com.firebase.ui.auth.IdpResponse
 import com.google.android.gms.analytics.HitBuilders
 import com.google.android.gms.analytics.Tracker
@@ -67,10 +66,6 @@ import io.reactivex.SingleOnSubscribe
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.observers.DisposableSingleObserver
 import io.reactivex.schedulers.Schedulers
-import java.io.*
-import java.nio.channels.FileChannel
-import java.util.*
-import java.util.zip.ZipFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -79,16 +74,30 @@ import org.apache.commons.compress.archivers.sevenz.SevenZFile
 import org.devmiyax.yabasanshiro.BuildConfig
 import org.devmiyax.yabasanshiro.R
 import org.uoyabause.android.YabauseStorage.Companion.storage
+import java.io.*
+import java.nio.channels.FileChannel
+import java.util.*
+import java.util.zip.ZipFile
+import androidx.appcompat.view.ContextThemeWrapper as ContextThemeWrapper1
+import android.os.Handler
+import android.os.Looper
+import androidx.room.Room
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.invoke
+import org.uoyabause.android.YabauseStorage.Companion.dao
+
 
 class GameSelectPresenter(
     target: Fragment,
     private val yabauseActivityLauncher: ActivityResultLauncher<Intent>,
-    listener: GameSelectPresenterListener) {
+    listener: GameSelectPresenterListener,
+) : AutoBackupManager.AutoBackupManagerListener {
     private val mFirebaseAnalytics: FirebaseAnalytics
     private var mGoogleSignInClient: GoogleSignInClient? = null
     private val TAG = "GameSelectPresenter"
     private var tracker: Tracker? = null
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val autoBackupManager: AutoBackupManager
 
 
     private var gameSignInActivityLauncher = target.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -117,6 +126,13 @@ class GameSelectPresenter(
         fun onUpdateDialogMessage(message: String)
         fun onDismissDialog()
         fun onLoadRows()
+
+        fun onStartSyncBackUp()
+
+        fun onFinishSyncBackUp(result: AutoBackupManager.SyncResult, message: String )
+
+        fun onSignOut()
+
     }
 
     private fun updateGameDatabaseRx(observer: Observer<String>?) {
@@ -171,7 +187,10 @@ class GameSelectPresenter(
     fun signIn( launcher : ActivityResultLauncher<Intent> ) {
         val intent = AuthUI.getInstance()
             .createSignInIntentBuilder()
-            .setAvailableProviders(Arrays.asList(GoogleBuilder().build()))
+            .setAvailableProviders(Arrays.asList(
+                GoogleBuilder().build(),
+                AppleBuilder().build()
+            ))
             .build()
         launcher.launch(intent)
     }
@@ -187,12 +206,15 @@ class GameSelectPresenter(
                 return@SingleOnSubscribe
             }
             authEmitter = emitter
-
             target_.startActivity(
-                AuthUI.getInstance()
-                    .createSignInIntentBuilder()
-                    .setAvailableProviders(Arrays.asList(GoogleBuilder().build()))
-                    .build())
+                    AuthUI.getInstance()
+                        .createSignInIntentBuilder()
+                        .setAvailableProviders(Arrays.asList(
+                            GoogleBuilder().build(),
+                            AppleBuilder().build()
+                        ))
+                        .build()
+            )
         })
         .subscribeOn(AndroidSchedulers.mainThread())
         .observeOn(AndroidSchedulers.mainThread())
@@ -203,6 +225,7 @@ class GameSelectPresenter(
         AuthUI.getInstance()
             .signOut(target_.requireActivity())
             .addOnCompleteListener {
+                this.listener_.onSignOut()
                 // user is now signed out
                 // startActivity(new Intent(MyActivity.this, SignInActivity.class));
                 // finish();
@@ -240,10 +263,17 @@ class GameSelectPresenter(
 
             val baseref = FirebaseDatabase.getInstance().reference
             val baseurl = "/user-posts/" + currentUser.uid
-            if (currentUser.displayName != null) {
-                username_ = currentUser.displayName
-                baseref.child(baseurl).child("name").setValue(currentUser.displayName)
+
+            // Set username_ based on available information
+            username_ = when {
+                !currentUser.displayName.isNullOrEmpty() -> currentUser.displayName
+                !currentUser.email.isNullOrEmpty() -> currentUser.email!!.split("@").firstOrNull() ?: currentUser.email
+                else -> currentUser.uid
             }
+
+            // Store the username in Firebase
+            baseref.child(baseurl).child("name").setValue(username_)
+
             if (currentUser.email != null) {
                 baseref.child(baseurl).child("email").setValue(currentUser.email)
             }
@@ -267,9 +297,12 @@ class GameSelectPresenter(
                 baseref.child(baseurl).child("max_backup_count").setValue(3)
             }
 
+            autoBackupManager.startSubscribeBackupMemory(currentUser)
+
+
             // startActivity(SignedInActivity.createIntent(this, response));
             // val application = target_.activity!!.application as YabauseApplication
-            FirebaseCrashlytics.getInstance().setUserId(currentUser.displayName + "_" + currentUser.email)
+            FirebaseCrashlytics.getInstance().setUserId(username_ + "_" + currentUser.email)
 
             if (authEmitter != null) {
                 authEmitter!!.onSuccess(currentUser)
@@ -294,23 +327,34 @@ class GameSelectPresenter(
             // Sign in failed
             if (response == null) {
                 // User pressed back button
-                listener_.onShowMessage(R.string.sign_in_cancelled)
+                listener_.onShowMessage(org.devmiyax.yabasanshiro.R.string.sign_in_cancelled)
                 return
             }
-            if (response.error!!.errorCode == ErrorCodes.NO_NETWORK) {
-                listener_.onShowMessage(R.string.no_internet_connection)
+/*
+            if (response.error!!.errorCode == MediaDrm.ErrorCodes.NO_NETWORK) {
+                listener_.onShowMessage(org.devmiyax.yabasanshiro.R.string.no_internet_connection)
                 return
             }
-            if (response.error!!.errorCode == ErrorCodes.UNKNOWN_ERROR) {
-                listener_.onShowMessage(R.string.unknown_error)
+            if (response.error!!.errorCode == MediaDrm.ErrorCodes.UNKNOWN_ERROR) {
+                listener_.onShowMessage(org.devmiyax.yabasanshiro.R.string.unknown_error)
                 return
             }
+
+ */
         }
         if (authEmitter != null) {
             authEmitter!!.onError(Throwable("Sigin in failed"))
             authEmitter = null
         }
-        listener_.onShowMessage(R.string.unknown_sign_in_response)
+        listener_.onShowMessage(org.devmiyax.yabasanshiro.R.string.unknown_sign_in_response)
+    }
+
+    fun onPause(){
+        autoBackupManager.onPause()
+    }
+
+    fun onResume(){
+        autoBackupManager.onResume()
     }
 
     fun onSelectFile(uri: Uri) {
@@ -341,8 +385,10 @@ class GameSelectPresenter(
                 message += target_.getString(R.string.remaining_installation_count_is) + " " + count + "."
             }
 
-            AlertDialog.Builder(ContextThemeWrapper(
-                target_.activity, R.style.Theme_AppCompat))
+            AlertDialog.Builder(
+                ContextThemeWrapper1(
+                target_.activity, R.style.Theme_AppCompat)
+            )
                 .setTitle(target_.getString(R.string.do_you_want_to_install))
                 .setMessage(message)
                 .setPositiveButton(R.string.yes) { _, _ ->
@@ -356,9 +402,7 @@ class GameSelectPresenter(
                 }
                 .setCancelable(true)
                 .show()
-        } else if (path.lowercase(Locale.getDefault()).endsWith("zip") || path.lowercase(Locale.getDefault())
-                .endsWith("7z")) {
-
+        } else if (path.lowercase(Locale.getDefault()).endsWith("zip") /*|| path.lowercase(Locale.getDefault()).endsWith("7z")*/) {
             selectStorage {
                 installZipGameFile(uri, path)
             }
@@ -442,6 +486,8 @@ class GameSelectPresenter(
                     "yab_start_game", bundle
                 )
                 parcelFileDescriptor!!.close()
+                val sharedPref = PreferenceManager.getDefaultSharedPreferences(target_.requireActivity())
+                sharedPref.edit().putString("last_play_Game",gameinfo.game_title).commit()
                 val intent = Intent(target_.requireActivity(), Yabause::class.java)
                 intent.putExtra("org.uoyabause.android.FileNameUri", uri.toString())
                 intent.putExtra("org.uoyabause.android.gamecode", gameinfo.product_number)
@@ -486,14 +532,13 @@ class GameSelectPresenter(
     }
 
     fun installZipGameFile(uri: Uri, path: String) {
-        scope.launch {
+        GlobalScope.launch(Dispatchers.IO) {
             withContext(Dispatchers.Main) {
                 listener_.onShowDialog("Installing ...")
             }
 
             var zipFileName = ""
             try {
-
                 val f = File(path)
                 zipFileName = storage.getInstallDir().absolutePath + "/" + f.name
                 val fd = File(zipFileName)
@@ -507,12 +552,9 @@ class GameSelectPresenter(
                         } else {
                             copyFileO(inputStream, outputStream)
                         }
-                        inputStream.close()
-                        outputStream.close()
                     }
                 }
                 parcelFileDescriptor.close()
-
 
                 var targetFileName = ""
 
@@ -520,96 +562,91 @@ class GameSelectPresenter(
                     listener_.onUpdateDialogMessage("Extracting ${fd.name}")
                 }
 
-                if (zipFileName.lowercase(Locale.getDefault()).endsWith("zip")) {
+                val installDir = storage.getInstallDir()
 
+                if (zipFileName.lowercase(Locale.getDefault()).endsWith("zip")) {
                     ZipFile(zipFileName).use { zip ->
                         zip.entries().asSequence().forEach { entry ->
+                            val outputFile = File(installDir, entry.name)
+
+                            // パストラバーサル攻撃を防止するための検証
+                            if (!outputFile.canonicalPath.startsWith(installDir.canonicalPath)) {
+                                Log.e(TAG, "Entry is outside of the target dir: ${entry.name}")
+                                return@forEach
+                            }
+
+                            if (entry.isDirectory) {
+                                outputFile.mkdirs()
+                            } else {
+                                outputFile.parentFile?.mkdirs()
+                                zip.getInputStream(entry).use { input ->
+                                    outputFile.outputStream().use { output ->
+                                        input.copyTo(output)
+                                    }
+                                }
+                            }
 
                             if (entry.name.lowercase(Locale.ROOT).endsWith("ccd") ||
                                 entry.name.lowercase(Locale.ROOT).endsWith("cue") ||
                                 entry.name.lowercase(Locale.ROOT).endsWith("mds")
                             ) {
-                                targetFileName = storage.getInstallDir().absolutePath + "/" + entry.name
-                            }
-                            zip.getInputStream(entry).use { input ->
-                                if (entry.isDirectory) {
-                                    val unzipdir =
-                                        File(storage.getInstallDir().absolutePath + "/" + entry.name)
-                                    if (!unzipdir.exists()) {
-                                        unzipdir.mkdirs()
-                                    } else {
-                                        unzipdir.delete()
-                                        unzipdir.mkdirs()
-                                    }
-                                } else {
-                                    File(storage.getInstallDir().absolutePath + "/" + entry.name).outputStream()
-                                        .use { output ->
-                                            input.copyTo(output)
-                                        }
-                                }
+                                targetFileName = outputFile.absolutePath
                             }
                         }
                     }
                 } else if (zipFileName.lowercase(Locale.getDefault()).endsWith("7z")) {
                     SevenZFile(File(zipFileName)).use { sz ->
                         sz.entries.asSequence().forEach { entry ->
+                            val outputFile = File(installDir, entry.name)
+
+                            // パストラバーサル攻撃を防止するための検証
+                            if (!outputFile.canonicalPath.startsWith(installDir.canonicalPath)) {
+                                Log.e(TAG, "Entry is outside of the target dir: ${entry.name}")
+                                return@forEach
+                            }
+
+                            if (entry.isDirectory) {
+                                outputFile.mkdirs()
+                            } else {
+                                outputFile.parentFile?.mkdirs()
+                                sz.getInputStream(entry).use { input ->
+                                    outputFile.outputStream().use { output ->
+                                        input.copyTo(output, bufferSize = 32 * 1024)
+                                    }
+                                }
+                            }
+
                             if (entry.name.lowercase(Locale.ROOT).endsWith("ccd") ||
                                 entry.name.lowercase(Locale.ROOT).endsWith("cue") ||
                                 entry.name.lowercase(Locale.ROOT).endsWith("mds")
                             ) {
-                                targetFileName = storage.getInstallDir().absolutePath + "/" + entry.name
-                            }
-
-                            if (entry.isDirectory) {
-                                val unzipdir =
-                                    File(storage.getInstallDir().absolutePath + "/" + entry.name)
-                                if (!unzipdir.exists()) {
-                                    unzipdir.mkdirs()
-                                } else {
-                                    unzipdir.delete()
-                                    unzipdir.mkdirs()
-                                }
-                            } else {
-                                sz.getInputStream(entry).use { input ->
-                                    File(storage.getInstallDir().absolutePath + "/" + entry.name).outputStream()
-                                        .use { output ->
-                                            input.copyTo(output)
-                                        }
-                                }
+                                targetFileName = outputFile.absolutePath
                             }
                         }
                     }
                 }
 
-                if (targetFileName != "") {
+                if (targetFileName.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
                         decrementInstallCount()
                         fileSelected(File(targetFileName))
                     }
                 } else {
-
                     withContext(Dispatchers.Main) {
                         Toast.makeText(target_.requireContext(),
                             "ISO image is not found!!",
                             Toast.LENGTH_LONG).show()
                     }
+                    Log.e(TAG, "ISO image is not found!!")
                 }
             } catch (e: Exception) {
-
                 withContext(Dispatchers.Main) {
                     Toast.makeText(target_.requireContext(),
-                        "Fail to copy " + e.localizedMessage,
+                        "Fail to copy ${e.localizedMessage}",
                         Toast.LENGTH_LONG).show()
                 }
-            } catch (e: IOException) {
-
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(target_.requireContext(),
-                        "Fail to copy " + e.localizedMessage,
-                        Toast.LENGTH_LONG).show()
-                }
+                Log.e(TAG, "Fail to copy ${e.localizedMessage}")
             } finally {
-
                 val fd = File(zipFileName)
                 if (fd.isFile && fd.exists()) {
                     fd.delete()
@@ -667,6 +704,10 @@ class GameSelectPresenter(
                     mFirebaseAnalytics.logEvent(
                         "yab_start_game", bundle
                     )
+
+                    val sharedPref = PreferenceManager.getDefaultSharedPreferences(target_.requireActivity())
+                    sharedPref.edit().putString("last_play_Game",gameinfo.game_title).commit()
+
                     parcelFileDescriptor1!!.close()
                 } else {
                     Toast.makeText(target_.requireContext(), "Fail to open $apath", Toast.LENGTH_LONG)
@@ -719,9 +760,20 @@ class GameSelectPresenter(
     }
 
     fun startGame(item: GameInfo, launcher : ActivityResultLauncher<Intent>) {
-        val c = Calendar.getInstance()
-        item.lastplay_date = c.time
-        item.save()
+
+        if( autoBackupManager.syncState != AutoBackupManager.BackupSyncState.IDLE){
+            val handler = Handler(Looper.getMainLooper())
+            handler.postDelayed({
+                startGame(item, launcher)
+            }, 1000) //
+            return;
+        }
+
+        GlobalScope.launch(Dispatchers.IO) {
+            val c = Calendar.getInstance()
+            item.lastplay_date = c.time
+            YabauseStorage.dao.update(item)
+        }
 
         val application = target_.requireActivity().application as YabauseApplication
         tracker = application.defaultTracker
@@ -737,6 +789,9 @@ class GameSelectPresenter(
         mFirebaseAnalytics.logEvent(
             "yab_start_game", bundle
         )
+
+        val sharedPref = PreferenceManager.getDefaultSharedPreferences(target_.requireActivity())
+        sharedPref.edit().putString("last_play_Game",item.game_title).commit()
 
         if (item.file_path.contains("content://") == true) {
             val intent = Intent(target_.activity, Yabause::class.java)
@@ -756,7 +811,21 @@ class GameSelectPresenter(
         get() {
             val auth = FirebaseAuth.getInstance()
             return if (auth.currentUser != null) {
-                auth.currentUser!!.displayName
+                when {
+                    // First try to use display name if it exists and is not empty
+                    !auth.currentUser!!.displayName.isNullOrEmpty() -> {
+                        auth.currentUser!!.displayName
+                    }
+                    // Then try to use email if it exists
+                    !auth.currentUser!!.email.isNullOrEmpty() -> {
+                        // Use the part before @ in the email
+                        auth.currentUser!!.email!!.split("@").firstOrNull() ?: auth.currentUser!!.email
+                    }
+                    // Finally fall back to UID
+                    else -> {
+                        auth.currentUser!!.uid
+                    }
+                }
             } else null
         }
     val currentUserPhoto: Uri?
@@ -777,12 +846,18 @@ class GameSelectPresenter(
         if (do_not_ask == true) {
             val auth = FirebaseAuth.getInstance()
             if (auth.currentUser != null) {
-                FirebaseCrashlytics.getInstance().setUserId(auth.currentUser!!
-                    .displayName + "_" + auth.currentUser!!.email)
-                mFirebaseAnalytics.setUserId(auth.currentUser!!
-                    .displayName + "_" + auth.currentUser!!.email)
-                mFirebaseAnalytics.setUserProperty("name", auth.currentUser!!
-                    .displayName + "_" + auth.currentUser!!.email)
+                // Get username using the same logic as currentUserName
+                val username = when {
+                    !auth.currentUser!!.displayName.isNullOrEmpty() -> auth.currentUser!!.displayName
+                    !auth.currentUser!!.email.isNullOrEmpty() -> auth.currentUser!!.email!!.split("@").firstOrNull() ?: auth.currentUser!!.email
+                    else -> auth.currentUser!!.uid
+                }
+
+                FirebaseCrashlytics.getInstance().setUserId(username + "_" + auth.currentUser!!.email)
+                mFirebaseAnalytics.setUserId(username + "_" + auth.currentUser!!.email)
+                mFirebaseAnalytics.setUserProperty("name", username + "_" + auth.currentUser!!.email)
+
+                autoBackupManager.startSubscribeBackupMemory(auth.currentUser!!)
             }
             return
         }
@@ -790,8 +865,10 @@ class GameSelectPresenter(
             .layoutInflater.inflate(R.layout.signin, null)
         val auth = FirebaseAuth.getInstance()
         if (auth.currentUser == null) {
-            val builder = AlertDialog.Builder(ContextThemeWrapper(
-                target_.activity, R.style.Theme_AppCompat))
+            val builder = AlertDialog.Builder(
+                ContextThemeWrapper1(
+                    target_.activity, R.style.Theme_AppCompat)
+            )
             builder.setTitle(R.string.do_you_want_to_sign_in)
                 .setCancelable(false)
                 .setView(view)
@@ -807,9 +884,12 @@ class GameSelectPresenter(
                             .createSignInIntentBuilder()
                             .setTheme(R.style.Theme_AppCompat)
                             .setTosAndPrivacyPolicyUrls(
-                                "https://www.uoyabause.org/static_pages/eula.html",
-                                "https://www.uoyabause.org/static_pages/privacy_policy")
-                            .setAvailableProviders(Arrays.asList(GoogleBuilder().build()))
+                                "https://www.yabasanshiro.com/terms-of-use",
+                                "https://www.yabasanshiro.com/privacy")
+                            .setAvailableProviders(Arrays.asList(
+                                GoogleBuilder().build(),
+                                AppleBuilder().build()
+                            ))
                             .build())
                 }
                 .setNegativeButton(target_.resources.getString(R.string.decline)) { dialog, _ ->
@@ -825,16 +905,29 @@ class GameSelectPresenter(
                 }
             builder.create().show()
         } else {
-            FirebaseCrashlytics.getInstance().setUserId(auth.currentUser!!
-                .displayName + "_" + auth.currentUser!!.email)
-            mFirebaseAnalytics.setUserId(auth.currentUser!!
-                .displayName + "_" + auth.currentUser!!.email)
-            mFirebaseAnalytics.setUserProperty("name", auth.currentUser!!
-                .displayName + "_" + auth.currentUser!!.email)
+            // Get username using the same logic as currentUserName
+            val username = when {
+                !auth.currentUser!!.displayName.isNullOrEmpty() -> auth.currentUser!!.displayName
+                !auth.currentUser!!.email.isNullOrEmpty() -> auth.currentUser!!.email!!.split("@").firstOrNull() ?: auth.currentUser!!.email
+                else -> auth.currentUser!!.uid
+            }
+
+            FirebaseCrashlytics.getInstance().setUserId(username + "_" + auth.currentUser!!.email)
+            mFirebaseAnalytics.setUserId(username + "_" + auth.currentUser!!.email)
+            mFirebaseAnalytics.setUserProperty("name", username + "_" + auth.currentUser!!.email)
         }
     }
 
     fun fileSelected(file: File) {
+
+        if( autoBackupManager.syncState != AutoBackupManager.BackupSyncState.IDLE){
+            val handler = Handler(Looper.getMainLooper())
+            handler.postDelayed({
+                fileSelected(file)
+            }, 1000) //
+            return;
+        }
+
         val apath: String = file.absolutePath
         // save last selected dir
         val sharedPref =
@@ -842,26 +935,34 @@ class GameSelectPresenter(
         val editor = sharedPref.edit()
         editor.putString("pref_last_dir", file.parent)
         editor.apply()
-        var gameinfo: GameInfo? = GameInfo.getFromFileName(apath)
-        if (gameinfo == null) {
-            gameinfo = if (apath.endsWith("CUE") || apath.endsWith("cue")) {
-                GameInfo.genGameInfoFromCUE(apath)
-            } else if (apath.endsWith("MDS") || apath.endsWith("mds")) {
-                GameInfo.genGameInfoFromMDS(apath)
-            } else if (apath.endsWith("CHD") || apath.endsWith("chd")) {
-                GameInfo.genGameInfoFromCHD(apath)
-            } else if (apath.endsWith("CCD") || apath.endsWith("ccd")) {
-                GameInfo.genGameInfoFromMDS(apath)
-            } else {
-                GameInfo.genGameInfoFromIso(apath)
-            }
-        }
-        if (gameinfo != null) {
-            scope.launch {
-                gameinfo.updateState()
+
+        GlobalScope.launch(Dispatchers.IO) {
+
+            var gameinfo: GameInfo? = YabauseStorage.dao.findByFilePath(apath)
+            if (gameinfo == null) {
+                gameinfo = when {
+                    apath.endsWith("CUE", ignoreCase = true) -> GameInfo.genGameInfoFromCUE(apath)
+                    apath.endsWith("MDS", ignoreCase = true) -> GameInfo.genGameInfoFromMDS(apath)
+                    apath.endsWith("CCD", ignoreCase = true) -> GameInfo.genGameInfoFromCCD(apath)
+                    apath.endsWith("CHD", ignoreCase = true) -> GameInfo.genGameInfoFromCHD(apath)
+                    else -> GameInfo.genGameInfoFromIso(apath)
+                }
+
+                if( gameinfo != null ) {
+                    gameinfo.updateState()
+                    val c = Calendar.getInstance()
+                    gameinfo.lastplay_date = c.time
+                    YabauseStorage.dao.insertAll(gameinfo)
+                }
+
+            }else{
                 val c = Calendar.getInstance()
                 gameinfo.lastplay_date = c.time
-                gameinfo.save()
+                YabauseStorage.dao.update(gameinfo)
+            }
+
+            if (gameinfo != null) {
+
                 withContext(Dispatchers.Main) {
                     listener_.onLoadRows()
                     val bundle = Bundle()
@@ -870,16 +971,28 @@ class GameSelectPresenter(
                     mFirebaseAnalytics.logEvent(
                         "yab_start_game", bundle
                     )
+
+                    val sharedPref =
+                        PreferenceManager.getDefaultSharedPreferences(target_.requireActivity())
+                    sharedPref.edit().putString("last_play_Game", gameinfo.game_title).commit()
+
                     val intent = Intent(target_.requireActivity(), Yabause::class.java)
                     intent.putExtra("org.uoyabause.android.FileNameEx", apath)
                     intent.putExtra("org.uoyabause.android.gamecode", gameinfo.product_number)
                     this@GameSelectPresenter.yabauseActivityLauncher.launch(intent)
                 }
+            }else{
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(target_.requireContext(),
+                        "Failed to decrypt $apath",
+                        Toast.LENGTH_LONG).show()
+                    Log.e(TAG, "Failed to decrypt $apath")
+                }
+
             }
-        } else {
-            return
         }
     }
+
 
     companion object {
 //        const val RC_SIGN_IN = 123
@@ -890,5 +1003,69 @@ class GameSelectPresenter(
         target_ = target
         listener_ = listener
         mFirebaseAnalytics = FirebaseAnalytics.getInstance(target_.requireActivity())
+        autoBackupManager = AutoBackupManager(this)
     }
+
+    var isOnSubscription : Boolean
+        get() = autoBackupManager.isOnSubscription
+        set(value){
+            autoBackupManager.isOnSubscription = value
+        }
+
+    fun syncBackup(){
+        autoBackupManager.syncBackup()
+    }
+
+    fun rollBackMemory( downloadFilename : String, key : String ){
+        autoBackupManager.rollBackMemory(downloadFilename,key){
+
+        }
+    }
+
+    override fun enable(): Boolean {
+        val sharedPref = PreferenceManager.getDefaultSharedPreferences(target_.requireActivity())
+        return sharedPref.getBoolean("auto_backup",true)
+    }
+
+    override fun onFinish(
+        result: AutoBackupManager.SyncResult,
+        message: String,
+        onMainThread: () -> Unit
+    ) {
+        target_.activity?.runOnUiThread {
+            listener_.onFinishSyncBackUp(result, message)
+            onMainThread()
+        }
+    }
+
+    override fun onStartSyncBackUp(){
+        listener_.onStartSyncBackUp()
+    }
+
+    override fun getTitle() : String{
+        val sharedPref = PreferenceManager.getDefaultSharedPreferences(target_.requireActivity())
+        return sharedPref.getString("last_play_Game","")!!
+    }
+
+    override fun askConflict( onResult: ( result : AutoBackupManager.ConflictResult) -> Unit ) {
+        target_.activity?.runOnUiThread {
+            val builder =
+                AlertDialog.Builder(target_.requireContext())
+            builder.setTitle("Conflict detected")
+                .setMessage("Which do you want to use?")
+                //.setIcon(R.drawable.alert_icon)
+                .setPositiveButton("Local") { dialog, which ->
+                    onResult(AutoBackupManager.ConflictResult.LOCAL)
+                }
+                .setNegativeButton("Cloud") { dialog, which ->
+                    onResult(AutoBackupManager.ConflictResult.CLOUD)
+                }
+
+            val dialog = builder.create()
+            dialog.show()
+        }
+
+    }
+
+
 }

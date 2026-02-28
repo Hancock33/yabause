@@ -1067,8 +1067,13 @@ static void FASTCALL SH2jsr(SH2_struct * sh)
    s32 m = INSTRUCTION_B(sh->instruction);
 
    temp = sh->regs.PC;
-   sh->regs.PR = sh->regs.PC + 4;
-   sh->regs.PC = sh->regs.R[m];
+   if (sh->regs.R[m] != 0) {
+     sh->regs.PR = sh->regs.PC + 4;
+     sh->regs.PC = sh->regs.R[m];
+   }
+   else {
+     sh->regs.PC += 2;
+   }
    sh->cycles += 2;
    SH2delay(sh, temp + 2);
 }
@@ -3206,9 +3211,9 @@ FASTCALL void SH2InterpreterExec(SH2_struct *context, u32 cycles)
       if ((context->regs.PC & 0xC0000000) == 0xC0000000) context->instruction = DataArrayReadWord(context->regs.PC);
       else
 #endif
-      //context->instruction =  MappedMemoryReadWord(context->regs.PC,NULL);  //fetchlist[(context->regs.PC >> 20) & 0x0FF](context->regs.PC);
+        context->instruction =  fetchlist[(context->regs.PC >> 20) & 0x0FF](context->regs.PC);
 
-        context->instruction = MappedMemoryReadInst(context->regs.PC, NULL);// fetchlist[(context->regs.PC >> 20) & 0x0FF](context->regs.PC);
+        //context->instruction = MappedMemoryReadInst(context->regs.PC, NULL);// fetchlist[(context->regs.PC >> 20) & 0x0FF](context->regs.PC);
 
       // Execute it
       opcodes[context->instruction](context);

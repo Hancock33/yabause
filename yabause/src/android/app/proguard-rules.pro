@@ -10,6 +10,8 @@
 -keep public class org.uoyabause.android.YabauseRunnable.** { *; }
 -keep class org.uoyabause.android.Yabause.** { *; }
 -keepclassmembers class **.Yabause { *; }
+-keep class com.google.protobuf.** { *; }
+-dontwarn com.google.protobuf.**
 
  # Add this global rule
  -keepattributes Signature
@@ -21,7 +23,10 @@
       *;
  }
 
- -keepclassmembers class org.uoyabause.android.cheat.CheatItem {
+-keepclassmembers class org.uoyabause.android.cheat.CheatItem {
        *;
   }
 
+# Android Gradle plugin generated rules
+-dontwarn android.media.LoudnessCodecController$OnLoudnessCodecUpdateListener
+-dontwarn android.media.LoudnessCodecController

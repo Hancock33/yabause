@@ -64,9 +64,17 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 #define ALLOCATE(x) mmap(NULL, x, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_FILE | MAP_PRIVATE, -1, 0);
 //#define ALLOCATE(x) mmap ((void*)0x6000000, x, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS ,-1, 0);
 #define FREEMEM(x, a) munmap(x, a);
+
+#elif defined(IOS)
+#include <sys/mman.h>
+
+#include <sys/mman.h>
+#define ALLOCATE(x) mmap(NULL, x, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
+#define FREEMEM(x, a) munmap(x, a);
+
 #else
 #include <sys/mman.h>
-#define ALLOCATE(x) mmap(NULL, x, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_FILE | MAP_PRIVATE, -1, 0);
+#define ALLOCATE(x) mmap(NULL, x, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_JIT | MAP_ANON | MAP_PRIVATE, -1, 0);
 #define FREEMEM(x, a) munmap(x, a);
 //#define ALLOCATE(x)	malloc(x)
 //#define FREEMEM(x,a)	if(x){ free(x); x = NULL;}
@@ -116,6 +124,20 @@ struct Block
 // Sh2 Registris
 struct tagSH2
 {
+  tagSH2() {
+    memset(GenReg, 0, sizeof(u32) * 16);
+    memset(CtrlReg, 0, sizeof(u32) * 3);
+    memset(SysReg, 0, sizeof(u32) * 6);
+    getmembyte = 0;
+    getmemword = 0;
+    getmemlong = 0;
+    setmembyte = 0;
+    setmemword = 0;
+    setmemlong = 0;
+    eachclock = 0;
+    exitcount = 0;
+  }
+
   u32 GenReg[16];
   u32 CtrlReg[3];
   u32 SysReg[6];
@@ -414,15 +436,21 @@ extern "C"
   u8 memGetByteNoCache(u32);
   u16 memGetWordNoCache(u32);
   u32 memGetLongNoCache(u32);
+
 }
 
 #ifdef _WINDOWS
 
+#ifdef _WIN64
+#define dynaLock()
+#define dynaFree()
+#else
 #define dynaLock() __asm {                         \
     __asm push edx /*__asm push ebx*/ \
 }
 #define dynaFree() __asm {/*__asm pop ebx*/          \
    __asm pop edx}
+#endif
 
 #else
 #define dynaLock()

@@ -41,6 +41,13 @@ class VdpPipeline;
 #include <vector>  
 using std::vector;
 
+#include <queue> 
+
+#include <iostream>
+
+#define FRAMEBUFFER_COUNT (2)
+#define DESC_COUNT (4)
+
 class Vdp1Renderer {
 
 
@@ -52,11 +59,13 @@ class Vdp1Renderer {
     VkSemaphore _render_complete_semaphore;
     bool updated;
     bool readed;
+    std::queue<VkFence> renderFences;
+    VkImageLayout layout;
   };
   struct OffscreenPass {
     int32_t width, height;
     VkFramebuffer frameBuffer[2];
-    FrameBufferAttachment color[2], depth;
+    FrameBufferAttachment color[FRAMEBUFFER_COUNT], depth;
     VkRenderPass renderPass;
     VkSampler sampler;
     VkDescriptorImageInfo descriptor;
@@ -99,11 +108,10 @@ public:
   void change();
 
   void setTextureRatio(int vdp2widthratio, int vdp2heightratio);
+  
+  VkImageView getFrameBufferImage();
+  void useImageAsShaderRead(VkCommandBuffer commandBuffer);
 
-  VkImageView getFrameBufferImage() {
-    blitCpuWrittenFramebuffer(readframe);
-    return offscreenPass.color[readframe].view;
-  }
   VkSemaphore getFrameBufferSem() {
     if (offscreenPass.color[readframe].updated) {
       offscreenPass.color[readframe].updated = false;
@@ -127,10 +135,7 @@ public:
   int getMsbShadowCount() {
     return msbShadowCount[readframe];
   }
-
-  void setPolygonMode(POLYGONMODE p) {
-    proygonMode = p;
-  }
+  void setPolygonMode(POLYGONMODE p);
 
 protected:
 
@@ -203,6 +208,8 @@ protected:
 #endif
   }
 
+  
+  int currentDesc = 0;
 
   VkBuffer _vertexBuffer;
   VkDeviceMemory _vertexBufferMemory;
@@ -210,14 +217,15 @@ protected:
   VkDeviceMemory _indexBufferMemory;
   VkBuffer _clearUniformBuffer;
   VkDeviceMemory _clearUniformBufferMemory;
-  VkDescriptorSet _descriptorSet;
+  VkDescriptorSet _descriptorSet[DESC_COUNT];
   VkDescriptorSetLayout _descriptorSetLayout;
   VkDescriptorPool _descriptorPool;
   VkShaderModule _vertShaderModule;
   VkShaderModule _fragShaderModule;
   VkPipelineLayout _pipelineLayout;
   VkPipeline _graphicsPipeline;
-
+  //VkFence clearFence[2];
+  uint64_t clearCount = 0;
   Vdp2 baseVdp2Regs;
   void * frameBuffer;
 
@@ -247,3 +255,6 @@ protected:
   POLYGONMODE proygonMode;
 
 };
+
+
+void vkDebugNameObject(VkDevice device, VkObjectType object_type, uint64_t vulkan_handle, const char *format, ...);

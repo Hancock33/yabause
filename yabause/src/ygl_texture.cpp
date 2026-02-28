@@ -32,11 +32,15 @@ extern "C" {
 
 #if defined(HAVE_VULKAN)
 #include "vulkan/VIDVulkan.h"
+#include "vulkan/VulkanTools.h"
 #include "vulkan/vulkan.hpp"
 #endif
 
 
 #define YGLDEBUG LOG
+
+// debug Color
+//imageStore(outSurface,texel,vec4( float(32u&0xFFu)/255.0, float((32u>>8) &0xFFu)/255.0, float((32u>>16) &0xFFu)/255.0, 1.0)); return;
 
 const char prg_generate_rbg_base[] =
 #if defined(_OGLES3_)
@@ -156,7 +160,7 @@ const char prg_generate_rbg_base[] =
 "    if( para[paramid].k_mem_type == 0) { \n"
 "	     kdata = vram[ addr>>2 ]; \n"
 "      if( (addr & 0x02u) != 0u ) { kdata >>= 16; } \n"
-"      kdata = (((kdata) >> 8 & 0xFFu) | ((kdata) & 0xFFu) << 8);\n"
+"      kdata = (((kdata>>8)&0xFFu) | ((kdata << 8) & 0xFFFFFF00u))&0xFFFFu;\n"
 "    }else{\n"
 "      kdata = cram[ ((0x800u + (addr&0x7FFu))>>2)  ]; \n"
 "      if( (addr & 0x02u) != 0u ) { kdata >>= 16; } \n"
@@ -167,7 +171,7 @@ const char prg_generate_rbg_base[] =
 "    uint addr = ( uint( int(para[paramid].coeftbladdr) + (kindex<<2))&0x7FFFFu);"
 "    if( para[paramid].k_mem_type == 0) { \n"
 "	     kdata = vram[ addr>>2 ]; \n"
-"      kdata = ((kdata&0xFF000000u) >> 24 | ((kdata) >> 8 & 0xFF00u) | ((kdata) & 0xFF00u) << 8 | (kdata&0x000000FFu) << 24);\n"
+"      kdata = ((kdata&0xFF000000u) >> 24 | ((kdata >> 8) & 0x0000FF00u) | ((kdata<<8) & 0x00FF0000u) | (kdata&0x000000FFu) << 24);\n"
 "    }else{\n"
 "      kdata = cram[ ((0x800u + (addr&0x7FFu) )>>2) ]; \n"
 "      kdata = ((kdata&0xFFFF0000u)>>16|(kdata&0x0000FFFFu)<<16);\n"
@@ -249,6 +253,8 @@ const char prg_generate_rbg_base[] =
 "  uint specialcolorfunction_in = 0u;\n"
 "  ivec2 texel = ivec2(gl_GlobalInvocationID.xy);\n"
 "  ivec2 size = imageSize(outSurface);\n"
+"  uint flipfunction = 0u;\n"
+"  uint addr = 0u;\n"
 "  if (texel.x >= size.x || texel.y >= size.y ) return;\n"
 "  float posx = float(texel.x) * hres_scale;\n"
 "  float posy = float(texel.y) * vres_scale;\n"
@@ -373,7 +379,7 @@ const char prg_rbg_overmode_repeat[] =
 "  case 1: // OVERMODE_SELPATNAME \n"
 "    if ((fh < 0.0) || (fh > float(para[paramid].MaxH)) || (fv < 0.0) || (fv > float(para[paramid].MaxV)) ) {\n"
 "        patternname = para[paramid].over_pattern_name;\n"
-"    }"
+"    }\n"
 "    x = int(fh);\n"
 "    y = int(fv);\n"
 "    break;\n"
@@ -400,7 +406,7 @@ const char prg_rbg_get_patternaddr[] =
 "  int planenum = (x >> para[paramid].ShiftPaneX) + ((y >> para[paramid].ShiftPaneY) << 2);\n"
 "  x &= (para[paramid].MskH);\n"
 "  y &= (para[paramid].MskV);\n"
-"  uint addr = para[paramid].PlaneAddrv[planenum];\n"
+"  addr = para[paramid].PlaneAddrv[planenum];\n"
 "  addr += uint( (((y >> 9) * pagesize * planew) + \n"
 "  ((x >> 9) * pagesize) + \n"
 "  (((y & 511) >> patternshift) * pagewh) + \n"
@@ -411,10 +417,9 @@ const char prg_rbg_get_pattern_data_1w[] =
 "  if( patternname == 0xFFFFFFFFu){\n"
 "    patternname = vram[addr>>2]; \n" // WORD mode( patterndatasize == 1 )
 "    if( (addr & 0x02u) != 0u ) { patternname >>= 16; } \n"
-"    patternname = (((patternname >> 8) & 0xFFu) | ((patternname) & 0xFFu) << 8);\n"
+"    patternname = (((patternname>>8)&0xFFu) | ((patternname << 8) & 0xFFFFFF00u)) & 0xFFFFu;\n"
 "  }\n"
 "  if(colornumber==0) paladdr = ((patternname & 0xF000u) >> 12) | ((supplementdata & 0xE0u) >> 1); else paladdr = (patternname & 0x7000u) >> 8;\n" // not in 16 colors
-"  uint flipfunction;\n"
 "  switch (auxmode)\n"
 "  {\n"
 "  case 0: \n"
@@ -449,9 +454,9 @@ const char prg_rbg_get_pattern_data_2w[] =
 "  patternname = vram[addr>>2]; \n"
 "  uint tmp1 = patternname & 0x7FFFu; \n"
 "  charaddr = patternname >> 16; \n"
-"  charaddr = (((charaddr >> 8) & 0xFFu) | ((charaddr) & 0xFFu) << 8);\n"
-"  tmp1 = (((tmp1 >> 8) & 0xFFu) | ((tmp1) & 0xFFu) << 8);\n"
-"  uint flipfunction = (tmp1 & 0xC000u) >> 14;\n"
+"  charaddr = (((charaddr>>8)&0xFFu) | ((charaddr << 8) & 0xFFFFFF00u)) & 0xFFFFu;\n"
+"  tmp1 = ((tmp1>>8)&0xFFu) | ((tmp1 << 8) & 0xFFFFFF00u);\n"
+"  flipfunction = (tmp1 & 0xC000u) >> 14;\n"
 "  if(colornumber==0) paladdr = tmp1 & 0x7Fu; else paladdr = tmp1 & 0x70u;\n" // not in 16 colors
 "  specialfunction_in = (tmp1 & 0x2000u) >> 13;\n"
 "  specialcolorfunction_in = (tmp1 & 0x1000u) >> 12;\n"
@@ -585,7 +590,8 @@ const char prg_rbg_getcolor_16bpp_palette[] =
 "  uint dotaddr = charaddr + uint((y*cellw)+x) * 2u;\n"
 "  dot = vram[dotaddr>>2]; \n"
 "  if( (dotaddr & 0x02u) != 0u ) { dot >>= 16; } \n"
-"  dot = (((dot) >> 8 & 0xFF) | ((dot) & 0xFF) << 8);\n"
+"  dot = (((dot>>8)&0xFFu) | ((dot << 8) & 0xFFFFFF00u))&0xFFFFu;\n"
+"  //dot = (((dot) >> 8 & 0xFF) | ((dot) & 0xFF) << 8);\n"
 "  if ( dot == 0 && transparencyenable != 0 ) { \n"
 "    cramindex = 0u; \n"
 "    alpha = 0.0;\n"
@@ -600,7 +606,8 @@ const char prg_rbg_getcolor_16bpp_rbg[] =
 "  uint dotaddr = charaddr + uint((y*cellw)+x) * 2u;\n"
 "  dot = vram[dotaddr>>2]; \n"
 "  if( (dotaddr & 0x02u) != 0u ) { dot >>= 16; } \n"
-"  dot = (((dot >> 8) & 0xFFu) | ((dot) & 0xFFu) << 8);\n"
+"  dot = (((dot>>8)&0xFFu) | ((dot << 8) & 0xFFFFFF00u))&0xFFFFu;\n"
+"  //dot = (((dot >> 8) & 0xFFu) | ((dot) & 0xFFu) << 8);\n"
 "  if ( (dot&0x8000u) == 0u && transparencyenable != 0 ) { \n"
 "    cramindex = 0u; \n"
 "    alpha = 0.0;\n"
@@ -615,7 +622,7 @@ const char prg_rbg_getcolor_32bpp_rbg[] =
 "  float alpha = alpha_;\n"
 "  uint dotaddr = charaddr + uint((y*cellw)+x) * 4u;\n"
 "  dot = vram[dotaddr>>2]; \n"
-"  dot = ((dot&0xFF000000u) >> 24 | ((dot >> 8) & 0xFF00u) | ((dot) & 0xFF00u) << 8 | (dot&0x000000FFu) << 24);\n"
+"  dot = ((dot&0xFF000000u) >> 24 | ((dot >> 8) & 0x0000FF00u) | ((dot<<8) & 0x00FF0000u) | (dot&0x000000FFu) << 24);\n"
 "  if ( (dot&0x80000000u) == 0u && transparencyenable != 0 ) { \n"
 "    cramindex = 0u; \n"
 "    alpha = 0.0;\n"
@@ -1139,7 +1146,7 @@ public:
       glGetShaderInfoLog(result, length, NULL, info);
       YGLDEBUG("[COMPILE] %s\n", info);
       YuiErrorMsg(info);
-      FILE * fp = fopen("tmp.cpp", "w");
+      FILE * fp = fopen_utf8("tmp.cpp", "w");
       if (fp) {
         for (int i = 0; i < count; i++) {
           fprintf(fp, "%s", prg_strs[i]);
@@ -1163,7 +1170,7 @@ public:
       glGetProgramInfoLog(program, length, NULL, info);
       YGLDEBUG("[LINK] %s\n", info);
       YuiErrorMsg(info);
-      FILE * fp = fopen("tmp.cpp", "w");
+      FILE * fp = fopen_utf8("tmp.cpp", "w");
       if (fp) {
         for (int i = 0; i < count; i++) {
           fprintf(fp, "%s", prg_strs[i]);
@@ -2527,7 +2534,7 @@ public:
 
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_vram_);
     //glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, 0x80000, (void*)Vdp2Ram);
-    if (mapped_vram == nullptr) mapped_vram = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 0x80000, GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+    if (mapped_vram == nullptr) mapped_vram = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 0x80000, GL_MAP_WRITE_BIT );
     memcpy(mapped_vram, Vdp2Ram, 0x80000);
     glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
     mapped_vram = nullptr;
@@ -2634,7 +2641,7 @@ public:
   void onFinish() {
     if (ssbo_vram_ != 0 && mapped_vram == nullptr) {
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_vram_);
-      mapped_vram = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 0x80000, GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+      mapped_vram = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 0x80000, GL_MAP_WRITE_BIT );
       glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
     }
   }
@@ -2645,7 +2652,7 @@ public:
 
 #include "vulkan/RBGGeneratorVulkan.h"
 #include <iostream>
-
+/*
 #define VK_CHECK_RESULT(f)																				\
 {																										\
 	vk::Result res = (f);																					\
@@ -2655,6 +2662,7 @@ public:
 		assert(res == vk::Result::eSuccess);																		\
 	}																									\
 }
+*/
 
 #include "shaderc/shaderc.hpp"
 using shaderc::Compiler;
@@ -2667,27 +2675,237 @@ RBGGeneratorVulkan::RBGGeneratorVulkan() {
 
 }
 
+
 RBGGeneratorVulkan::~RBGGeneratorVulkan() {
   delete rbgUniformParam;
+  if (vulkan != nullptr) {
+    VkDevice d = vulkan->getDevice();
+    vk::Device device(d);
+
+    // Destroy images and views
+    for (auto& surface : tex_surface) {
+      if (surface.view) device.destroyImageView(surface.view);
+      if (surface.image) device.destroyImage(surface.image);
+      if (surface.mem) device.freeMemory(surface.mem);
+    }
+
+    // Destroy buffers
+    if (ssbo_vram_.buf) {
+      device.destroyBuffer(ssbo_vram_.buf);
+      device.freeMemory(ssbo_vram_.mem);
+    }
+    if (ssbo_cram_.buf) {
+      device.destroyBuffer(ssbo_cram_.buf);
+      device.freeMemory(ssbo_cram_.mem);
+    }
+    if (ssbo_window_.buf) {
+      device.destroyBuffer(ssbo_window_.buf);
+      device.freeMemory(ssbo_window_.mem);
+    }
+    if (ssbo_paraA_.buf) {
+      device.destroyBuffer(ssbo_paraA_.buf);
+      device.freeMemory(ssbo_paraA_.mem);
+    }
+
+    // Destroy uniform buffers
+    for (auto& uniform : rbgUniform) {
+      if (uniform.buf) {
+        device.destroyBuffer(uniform.buf);
+        device.freeMemory(uniform.mem);
+      }
+    }
+
+    // Destroy pipeline resources
+    if (pipelineLayout) device.destroyPipelineLayout(pipelineLayout);
+    if (descriptorPool) device.destroyDescriptorPool(descriptorPool);
+    if (descriptorSetLayout) device.destroyDescriptorSetLayout(descriptorSetLayout);
+    if (sampler) device.destroySampler(sampler);
+
+    // Destroy command resources
+    if (commandPool) {
+      if (command[0]) {  // 少なくとも1つのコマンドバッファが割り当てられている場合
+        device.freeCommandBuffers(commandPool, MAX_RBG_RENDER, command);
+      }
+      device.destroyCommandPool(commandPool);
+    }
+
+    // Destroy fences
+    for (auto& fence : commandfence) {
+      if (fence) device.destroyFence(fence);
+    }
+
+    // Destroy semaphores
+    for (auto& sem : semaphores) {
+      if (sem.ready) device.destroySemaphore(sem.ready);
+      if (sem.complete) device.destroySemaphore(sem.complete);
+    }
+
+    // Destroy all pipelines
+    // RBG 0
+    if (prg_rbg_0_2w_bitmap_4bpp_) device.destroyPipeline(prg_rbg_0_2w_bitmap_4bpp_);
+    if (prg_rbg_0_2w_bitmap_8bpp_) device.destroyPipeline(prg_rbg_0_2w_bitmap_8bpp_);
+    if (prg_rbg_0_2w_bitmap_16bpp_p_) device.destroyPipeline(prg_rbg_0_2w_bitmap_16bpp_p_);
+    if (prg_rbg_0_2w_bitmap_16bpp_) device.destroyPipeline(prg_rbg_0_2w_bitmap_16bpp_);
+    if (prg_rbg_0_2w_bitmap_32bpp_) device.destroyPipeline(prg_rbg_0_2w_bitmap_32bpp_);
+    if (prg_rbg_0_2w_p1_4bpp_) device.destroyPipeline(prg_rbg_0_2w_p1_4bpp_);
+    if (prg_rbg_0_2w_p2_4bpp_) device.destroyPipeline(prg_rbg_0_2w_p2_4bpp_);
+    if (prg_rbg_0_2w_p1_8bpp_) device.destroyPipeline(prg_rbg_0_2w_p1_8bpp_);
+    if (prg_rbg_0_2w_p2_8bpp_) device.destroyPipeline(prg_rbg_0_2w_p2_8bpp_);
+    if (prg_rbg_0_2w_p1_16bpp_p_) device.destroyPipeline(prg_rbg_0_2w_p1_16bpp_p_);
+    if (prg_rbg_0_2w_p2_16bpp_p_) device.destroyPipeline(prg_rbg_0_2w_p2_16bpp_p_);
+    if (prg_rbg_0_2w_p1_16bpp_) device.destroyPipeline(prg_rbg_0_2w_p1_16bpp_);
+    if (prg_rbg_0_2w_p2_16bpp_) device.destroyPipeline(prg_rbg_0_2w_p2_16bpp_);
+    if (prg_rbg_0_2w_p1_32bpp_) device.destroyPipeline(prg_rbg_0_2w_p1_32bpp_);
+    if (prg_rbg_0_2w_p2_32bpp_) device.destroyPipeline(prg_rbg_0_2w_p2_32bpp_);
+
+    // RBG 1
+    if (prg_rbg_1_2w_bitmap_4bpp_) device.destroyPipeline(prg_rbg_1_2w_bitmap_4bpp_);
+    if (prg_rbg_1_2w_bitmap_8bpp_) device.destroyPipeline(prg_rbg_1_2w_bitmap_8bpp_);
+    if (prg_rbg_1_2w_bitmap_16bpp_p_) device.destroyPipeline(prg_rbg_1_2w_bitmap_16bpp_p_);
+    if (prg_rbg_1_2w_bitmap_16bpp_) device.destroyPipeline(prg_rbg_1_2w_bitmap_16bpp_);
+    if (prg_rbg_1_2w_bitmap_32bpp_) device.destroyPipeline(prg_rbg_1_2w_bitmap_32bpp_);
+    if (prg_rbg_1_2w_p1_4bpp_) device.destroyPipeline(prg_rbg_1_2w_p1_4bpp_);
+    if (prg_rbg_1_2w_p2_4bpp_) device.destroyPipeline(prg_rbg_1_2w_p2_4bpp_);
+    if (prg_rbg_1_2w_p1_8bpp_) device.destroyPipeline(prg_rbg_1_2w_p1_8bpp_);
+    if (prg_rbg_1_2w_p2_8bpp_) device.destroyPipeline(prg_rbg_1_2w_p2_8bpp_);
+    if (prg_rbg_1_2w_p1_16bpp_p_) device.destroyPipeline(prg_rbg_1_2w_p1_16bpp_p_);
+    if (prg_rbg_1_2w_p2_16bpp_p_) device.destroyPipeline(prg_rbg_1_2w_p2_16bpp_p_);
+    if (prg_rbg_1_2w_p1_16bpp_) device.destroyPipeline(prg_rbg_1_2w_p1_16bpp_);
+    if (prg_rbg_1_2w_p2_16bpp_) device.destroyPipeline(prg_rbg_1_2w_p2_16bpp_);
+    if (prg_rbg_1_2w_p1_32bpp_) device.destroyPipeline(prg_rbg_1_2w_p1_32bpp_);
+    if (prg_rbg_1_2w_p2_32bpp_) device.destroyPipeline(prg_rbg_1_2w_p2_32bpp_);
+
+    // RBG 2
+    if (prg_rbg_2_2w_bitmap_4bpp_) device.destroyPipeline(prg_rbg_2_2w_bitmap_4bpp_);
+    if (prg_rbg_2_2w_bitmap_8bpp_) device.destroyPipeline(prg_rbg_2_2w_bitmap_8bpp_);
+    if (prg_rbg_2_2w_bitmap_16bpp_p_) device.destroyPipeline(prg_rbg_2_2w_bitmap_16bpp_p_);
+    if (prg_rbg_2_2w_bitmap_16bpp_) device.destroyPipeline(prg_rbg_2_2w_bitmap_16bpp_);
+    if (prg_rbg_2_2w_bitmap_32bpp_) device.destroyPipeline(prg_rbg_2_2w_bitmap_32bpp_);
+    if (prg_rbg_2_2w_p1_4bpp_) device.destroyPipeline(prg_rbg_2_2w_p1_4bpp_);
+    if (prg_rbg_2_2w_p2_4bpp_) device.destroyPipeline(prg_rbg_2_2w_p2_4bpp_);
+    if (prg_rbg_2_2w_p1_8bpp_) device.destroyPipeline(prg_rbg_2_2w_p1_8bpp_);
+    if (prg_rbg_2_2w_p2_8bpp_) device.destroyPipeline(prg_rbg_2_2w_p2_8bpp_);
+    if (prg_rbg_2_2w_p1_16bpp_p_) device.destroyPipeline(prg_rbg_2_2w_p1_16bpp_p_);
+    if (prg_rbg_2_2w_p2_16bpp_p_) device.destroyPipeline(prg_rbg_2_2w_p2_16bpp_p_);
+    if (prg_rbg_2_2w_p1_16bpp_) device.destroyPipeline(prg_rbg_2_2w_p1_16bpp_);
+    if (prg_rbg_2_2w_p2_16bpp_) device.destroyPipeline(prg_rbg_2_2w_p2_16bpp_);
+    if (prg_rbg_2_2w_p1_32bpp_) device.destroyPipeline(prg_rbg_2_2w_p1_32bpp_);
+    if (prg_rbg_2_2w_p2_32bpp_) device.destroyPipeline(prg_rbg_2_2w_p2_32bpp_);
+
+    // RBG 3
+    if (prg_rbg_3_2w_bitmap_4bpp_) device.destroyPipeline(prg_rbg_3_2w_bitmap_4bpp_);
+    if (prg_rbg_3_2w_bitmap_8bpp_) device.destroyPipeline(prg_rbg_3_2w_bitmap_8bpp_);
+    if (prg_rbg_3_2w_bitmap_16bpp_p_) device.destroyPipeline(prg_rbg_3_2w_bitmap_16bpp_p_);
+    if (prg_rbg_3_2w_bitmap_16bpp_) device.destroyPipeline(prg_rbg_3_2w_bitmap_16bpp_);
+    if (prg_rbg_3_2w_bitmap_32bpp_) device.destroyPipeline(prg_rbg_3_2w_bitmap_32bpp_);
+    if (prg_rbg_3_2w_p1_4bpp_) device.destroyPipeline(prg_rbg_3_2w_p1_4bpp_);
+    if (prg_rbg_3_2w_p2_4bpp_) device.destroyPipeline(prg_rbg_3_2w_p2_4bpp_);
+    if (prg_rbg_3_2w_p1_8bpp_) device.destroyPipeline(prg_rbg_3_2w_p1_8bpp_);
+    if (prg_rbg_3_2w_p2_8bpp_) device.destroyPipeline(prg_rbg_3_2w_p2_8bpp_);
+    if (prg_rbg_3_2w_p1_16bpp_p_) device.destroyPipeline(prg_rbg_3_2w_p1_16bpp_p_);
+    if (prg_rbg_3_2w_p2_16bpp_p_) device.destroyPipeline(prg_rbg_3_2w_p2_16bpp_p_);
+    if (prg_rbg_3_2w_p1_16bpp_) device.destroyPipeline(prg_rbg_3_2w_p1_16bpp_);
+    if (prg_rbg_3_2w_p2_16bpp_) device.destroyPipeline(prg_rbg_3_2w_p2_16bpp_);
+    if (prg_rbg_3_2w_p1_32bpp_) device.destroyPipeline(prg_rbg_3_2w_p1_32bpp_);
+    if (prg_rbg_3_2w_p2_32bpp_) device.destroyPipeline(prg_rbg_3_2w_p2_32bpp_);
+
+    // Line versions
+    if (prg_rbg_0_2w_bitmap_4bpp_line_) device.destroyPipeline(prg_rbg_0_2w_bitmap_4bpp_line_);
+    if (prg_rbg_0_2w_bitmap_8bpp_line_) device.destroyPipeline(prg_rbg_0_2w_bitmap_8bpp_line_);
+    if (prg_rbg_0_2w_bitmap_16bpp_p_line_) device.destroyPipeline(prg_rbg_0_2w_bitmap_16bpp_p_line_);
+    
+
+    if (prg_rbg_0_2w_bitmap_16bpp_line_) device.destroyPipeline(prg_rbg_0_2w_bitmap_16bpp_line_);
+    if (prg_rbg_0_2w_bitmap_32bpp_line_) device.destroyPipeline(prg_rbg_0_2w_bitmap_32bpp_line_);
+    if (prg_rbg_0_2w_p1_4bpp_line_) device.destroyPipeline(prg_rbg_0_2w_p1_4bpp_line_);
+    if (prg_rbg_0_2w_p2_4bpp_line_) device.destroyPipeline(prg_rbg_0_2w_p2_4bpp_line_);
+    if (prg_rbg_0_2w_p1_8bpp_line_) device.destroyPipeline(prg_rbg_0_2w_p1_8bpp_line_);
+    if (prg_rbg_0_2w_p2_8bpp_line_) device.destroyPipeline(prg_rbg_0_2w_p2_8bpp_line_);
+    if (prg_rbg_0_2w_p1_16bpp_p_line_) device.destroyPipeline(prg_rbg_0_2w_p1_16bpp_p_line_);
+    if (prg_rbg_0_2w_p2_16bpp_p_line_) device.destroyPipeline(prg_rbg_0_2w_p2_16bpp_p_line_);
+    if (prg_rbg_0_2w_p1_16bpp_line_) device.destroyPipeline(prg_rbg_0_2w_p1_16bpp_line_);
+    if (prg_rbg_0_2w_p2_16bpp_line_) device.destroyPipeline(prg_rbg_0_2w_p2_16bpp_line_);
+    if (prg_rbg_0_2w_p1_32bpp_line_) device.destroyPipeline(prg_rbg_0_2w_p1_32bpp_line_);
+    if (prg_rbg_0_2w_p2_32bpp_line_) device.destroyPipeline(prg_rbg_0_2w_p2_32bpp_line_);
+
+    // Line versions RBG 1
+    if (prg_rbg_1_2w_bitmap_4bpp_line_) device.destroyPipeline(prg_rbg_1_2w_bitmap_4bpp_line_);
+    if (prg_rbg_1_2w_bitmap_8bpp_line_) device.destroyPipeline(prg_rbg_1_2w_bitmap_8bpp_line_);
+    if (prg_rbg_1_2w_bitmap_16bpp_p_line_) device.destroyPipeline(prg_rbg_1_2w_bitmap_16bpp_p_line_);
+    if (prg_rbg_1_2w_bitmap_16bpp_line_) device.destroyPipeline(prg_rbg_1_2w_bitmap_16bpp_line_);
+    if (prg_rbg_1_2w_bitmap_32bpp_line_) device.destroyPipeline(prg_rbg_1_2w_bitmap_32bpp_line_);
+    if (prg_rbg_1_2w_p1_4bpp_line_) device.destroyPipeline(prg_rbg_1_2w_p1_4bpp_line_);
+    if (prg_rbg_1_2w_p2_4bpp_line_) device.destroyPipeline(prg_rbg_1_2w_p2_4bpp_line_);
+    if (prg_rbg_1_2w_p1_8bpp_line_) device.destroyPipeline(prg_rbg_1_2w_p1_8bpp_line_);
+    if (prg_rbg_1_2w_p2_8bpp_line_) device.destroyPipeline(prg_rbg_1_2w_p2_8bpp_line_);
+    if (prg_rbg_1_2w_p1_16bpp_p_line_) device.destroyPipeline(prg_rbg_1_2w_p1_16bpp_p_line_);
+    if (prg_rbg_1_2w_p2_16bpp_p_line_) device.destroyPipeline(prg_rbg_1_2w_p2_16bpp_p_line_);
+    if (prg_rbg_1_2w_p1_16bpp_line_) device.destroyPipeline(prg_rbg_1_2w_p1_16bpp_line_);
+    if (prg_rbg_1_2w_p2_16bpp_line_) device.destroyPipeline(prg_rbg_1_2w_p2_16bpp_line_);
+    if (prg_rbg_1_2w_p1_32bpp_line_) device.destroyPipeline(prg_rbg_1_2w_p1_32bpp_line_);
+    if (prg_rbg_1_2w_p2_32bpp_line_) device.destroyPipeline(prg_rbg_1_2w_p2_32bpp_line_);
+
+    // Line versions RBG 2
+    if (prg_rbg_2_2w_bitmap_4bpp_line_) device.destroyPipeline(prg_rbg_2_2w_bitmap_4bpp_line_);
+    if (prg_rbg_2_2w_bitmap_8bpp_line_) device.destroyPipeline(prg_rbg_2_2w_bitmap_8bpp_line_);
+    if (prg_rbg_2_2w_bitmap_16bpp_p_line_) device.destroyPipeline(prg_rbg_2_2w_bitmap_16bpp_p_line_);
+    if (prg_rbg_2_2w_bitmap_16bpp_line_) device.destroyPipeline(prg_rbg_2_2w_bitmap_16bpp_line_);
+    if (prg_rbg_2_2w_bitmap_32bpp_line_) device.destroyPipeline(prg_rbg_2_2w_bitmap_32bpp_line_);
+    if (prg_rbg_2_2w_p1_4bpp_line_) device.destroyPipeline(prg_rbg_2_2w_p1_4bpp_line_);
+    if (prg_rbg_2_2w_p2_4bpp_line_) device.destroyPipeline(prg_rbg_2_2w_p2_4bpp_line_);
+    if (prg_rbg_2_2w_p1_8bpp_line_) device.destroyPipeline(prg_rbg_2_2w_p1_8bpp_line_);
+    if (prg_rbg_2_2w_p2_8bpp_line_) device.destroyPipeline(prg_rbg_2_2w_p2_8bpp_line_);
+    if (prg_rbg_2_2w_p1_16bpp_p_line_) device.destroyPipeline(prg_rbg_2_2w_p1_16bpp_p_line_);
+    if (prg_rbg_2_2w_p2_16bpp_p_line_) device.destroyPipeline(prg_rbg_2_2w_p2_16bpp_p_line_);
+    if (prg_rbg_2_2w_p1_16bpp_line_) device.destroyPipeline(prg_rbg_2_2w_p1_16bpp_line_);
+    if (prg_rbg_2_2w_p2_16bpp_line_) device.destroyPipeline(prg_rbg_2_2w_p2_16bpp_line_);
+    if (prg_rbg_2_2w_p1_32bpp_line_) device.destroyPipeline(prg_rbg_2_2w_p1_32bpp_line_);
+    if (prg_rbg_2_2w_p2_32bpp_line_) device.destroyPipeline(prg_rbg_2_2w_p2_32bpp_line_);
+
+    // Line versions RBG 3
+    if (prg_rbg_3_2w_bitmap_4bpp_line_) device.destroyPipeline(prg_rbg_3_2w_bitmap_4bpp_line_);
+    if (prg_rbg_3_2w_bitmap_8bpp_line_) device.destroyPipeline(prg_rbg_3_2w_bitmap_8bpp_line_);
+    if (prg_rbg_3_2w_bitmap_16bpp_p_line_) device.destroyPipeline(prg_rbg_3_2w_bitmap_16bpp_p_line_);
+    if (prg_rbg_3_2w_bitmap_16bpp_line_) device.destroyPipeline(prg_rbg_3_2w_bitmap_16bpp_line_);
+    if (prg_rbg_3_2w_bitmap_32bpp_line_) device.destroyPipeline(prg_rbg_3_2w_bitmap_32bpp_line_);
+    if (prg_rbg_3_2w_p1_4bpp_line_) device.destroyPipeline(prg_rbg_3_2w_p1_4bpp_line_);
+    if (prg_rbg_3_2w_p2_4bpp_line_) device.destroyPipeline(prg_rbg_3_2w_p2_4bpp_line_);
+    if (prg_rbg_3_2w_p1_8bpp_line_) device.destroyPipeline(prg_rbg_3_2w_p1_8bpp_line_);
+    if (prg_rbg_3_2w_p2_8bpp_line_) device.destroyPipeline(prg_rbg_3_2w_p2_8bpp_line_);
+    if (prg_rbg_3_2w_p1_16bpp_p_line_) device.destroyPipeline(prg_rbg_3_2w_p1_16bpp_p_line_);
+    if (prg_rbg_3_2w_p2_16bpp_p_line_) device.destroyPipeline(prg_rbg_3_2w_p2_16bpp_p_line_);
+    if (prg_rbg_3_2w_p1_16bpp_line_) device.destroyPipeline(prg_rbg_3_2w_p1_16bpp_line_);
+    if (prg_rbg_3_2w_p2_16bpp_line_) device.destroyPipeline(prg_rbg_3_2w_p2_16bpp_line_);
+    if (prg_rbg_3_2w_p1_32bpp_line_) device.destroyPipeline(prg_rbg_3_2w_p1_32bpp_line_);
+    if (prg_rbg_3_2w_p2_32bpp_line_) device.destroyPipeline(prg_rbg_3_2w_p2_32bpp_line_);
+
+
+  }
 }
 
 
-void RBGGeneratorVulkan::init(VIDVulkan * vulkan, int width, int height) {
+int RBGGeneratorVulkan::init(VIDVulkan * vulkan, int width, int height) {
 
   this->vulkan = vulkan;
   VkDevice device = vulkan->getDevice();
   vk::Device d(device);
   resize(width,height);
-  if (queue) return;
+  if (queue) return 0;
 
   int length = sizeof(prg_generate_rbg_base) + 64;
   snprintf(prg_generate_rbg,length,prg_generate_rbg_base,16,16);
 
   //queue = vk::Queue(vulkan->getVulkanQueue()); //d.getQueue(vulkan->getVulkanComputeQueueFamilyIndex(), 0);
-  queue = d.getQueue(vulkan->getVulkanComputeQueueFamilyIndex(), 0);
+  //queue = d.getQueue(vulkan->getVulkanComputeQueueFamilyIndex(), vulkan->getVulkanComputeQueue());
 
-  semaphores.ready = d.createSemaphore({});
-  semaphores.complete = d.createSemaphore({});
+  queue = vk::Queue(vulkan->getVulkanComputeQueue());
+
+  for( int i=0; i<MAX_RBG_RENDER; i++ ){
+    semaphores[i].ready = d.createSemaphore({});
+    semaphores[i].complete = d.createSemaphore({});
+    commandfence[i] = d.createFence( vk::FenceCreateInfo() );
+    commandfence[i] = d.createFence( vk::FenceCreateInfo() );
+  }
 
   //vk::SubmitInfo computeSubmitInfo;
   //computeSubmitInfo.signalSemaphoreCount = 1;
@@ -2696,7 +2914,10 @@ void RBGGeneratorVulkan::init(VIDVulkan * vulkan, int width, int height) {
   
   //commandPool = d.createCommandPool({ vk::CommandPoolCreateFlagBits::eResetCommandBuffer, vulkan->getVulkanGraphicsQueueFamilyIndex() /*vulkan->getVulkanComputeQueueFamilyIndex()*/ });
   commandPool = d.createCommandPool({ vk::CommandPoolCreateFlagBits::eResetCommandBuffer, vulkan->getVulkanComputeQueueFamilyIndex() });
-  command = d.allocateCommandBuffers({ commandPool, vk::CommandBufferLevel::ePrimary, 1 })[0];
+
+  for( int i=0; i<MAX_RBG_RENDER; i++ ){
+    command[i] = d.allocateCommandBuffers({ commandPool, vk::CommandBufferLevel::ePrimary, 1 })[0];
+  }
   
   // Create sampler
   vk::SamplerCreateInfo sampler;
@@ -2720,10 +2941,12 @@ void RBGGeneratorVulkan::init(VIDVulkan * vulkan, int width, int height) {
 
   VkBuffer u;
   VkDeviceMemory m;
-  vulkan->createBuffer(allocatedSize,
-    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, u, m);
-  rbgUniform.buf = vk::Buffer(u);
-  rbgUniform.mem = vk::DeviceMemory(m);
+  for (int i = 0; i < MAX_RBG_RENDER; i++) {
+    vulkan->createBuffer(allocatedSize,
+      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, u, m);
+    rbgUniform[i].buf = vk::Buffer(u);
+    rbgUniform[i].mem = vk::DeviceMemory(m);
+  }
 
   allocatedSize = getAllainedSize(0x80000);
   vulkan->createBuffer(allocatedSize,
@@ -2752,13 +2975,12 @@ void RBGGeneratorVulkan::init(VIDVulkan * vulkan, int width, int height) {
   ssbo_cram_.mem = vk::DeviceMemory(m);
 
   std::vector<vk::DescriptorPoolSize> poolSizes = {
-      vk::DescriptorPoolSize{ vk::DescriptorType::eStorageImage, 1 },
-      vk::DescriptorPoolSize{ vk::DescriptorType::eStorageBuffer, 1 },
-      vk::DescriptorPoolSize{ vk::DescriptorType::eStorageBuffer, 1 },
-      vk::DescriptorPoolSize{ vk::DescriptorType::eUniformBuffer, 1 },
-      vk::DescriptorPoolSize{ vk::DescriptorType::eStorageBuffer, 1 },
-      vk::DescriptorPoolSize{ vk::DescriptorType::eStorageBuffer, 1 },
-
+      vk::DescriptorPoolSize{ vk::DescriptorType::eStorageImage, MAX_RBG_RENDER },
+      vk::DescriptorPoolSize{ vk::DescriptorType::eStorageBuffer, MAX_RBG_RENDER },
+      vk::DescriptorPoolSize{ vk::DescriptorType::eStorageBuffer, MAX_RBG_RENDER },
+      vk::DescriptorPoolSize{ vk::DescriptorType::eUniformBuffer, MAX_RBG_RENDER },
+      vk::DescriptorPoolSize{ vk::DescriptorType::eStorageBuffer, MAX_RBG_RENDER },
+      vk::DescriptorPoolSize{ vk::DescriptorType::eStorageBuffer, MAX_RBG_RENDER },
   };
 
   descriptorPool = d.createDescriptorPool(vk::DescriptorPoolCreateInfo{ {}, 6, (uint32_t)poolSizes.size(), poolSizes.data() });
@@ -2772,17 +2994,47 @@ void RBGGeneratorVulkan::init(VIDVulkan * vulkan, int width, int height) {
   };
 
   descriptorSetLayout = d.createDescriptorSetLayout({ {}, (uint32_t)setLayoutBindings.size(), setLayoutBindings.data() });
-  descriptorSet = d.allocateDescriptorSets({ descriptorPool, 1, &descriptorSetLayout })[0];
+  for (int i = 0; i < MAX_RBG_RENDER; i++) {
+    descriptorSet[i] = d.allocateDescriptorSets({ descriptorPool, 1, &descriptorSetLayout })[0];
+  }
   updateDescriptorSets(0);
 
   std::string target;
-
-  for (int i = 0; i < 6; i++) {
+/*
+  target ="#version 320 es \n"
+     "precision highp float;\n"
+     "precision highp int;\n"
+     "precision highp image2D;\n"
+     "layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;\n"
+     "layout(rgba8, binding = 0)  uniform writeonly image2D outSurface;\n"
+     "layout(std430, binding = 1) readonly buffer VDP2 { uint vram[]; };\n"
+     "layout(std430, binding = 2) readonly buffer VDP2C { uint cram[]; };\n"
+     "void main() {\n"
+     "  ivec2 texel = ivec2(gl_GlobalInvocationID.xy);\n"
+     "  uint kdata = cram[texel.x];\n"
+     "  float ky = 0.0;\n"
+     "  kdata = ((kdata>>8)&0xFFu) | ((kdata << 8) & 0xFFFFFF00u);\n"
+     "  if((kdata&0x4000u)!=0u) { ky=float( int(kdata&0x7FFFu)| int(0xFFFF8000u) )/1024.0; }else{ ky=float(kdata&0x7FFFu)/1024.0;}\n"
+     "  kdata = ((kdata&0xFFFF0000u)>>16|(kdata&0x0000FFFFu)<<16);\n"    
+     "	if((kdata&0x00800000u)!=0u) ky=float( int(kdata&0x00FFFFFFu)| int(0xFF800000u) )/65536.0; else ky=float(kdata&0x00FFFFFFu)/65536.0;\n"     
+//   "  kdata = (((kdata>>8)&0xFFu) | (kdata<<8) ) & 0xFFFFu ;\n"
+     "  if ((kdata&0x8000u)!=0x0u) { return; }\n"
+     "  imageStore(outSurface,texel,vec4(ky));\n"
+     "}";
+*/
+  for (int i = 0; i < sizeof(a_prg_rbg_0_2w_bitmap)/sizeof(char*); i++) {
     target += a_prg_rbg_0_2w_bitmap[i];
   }
+  //for (int i = 0; i < sizeof(a_prg_rbg_0_2w_p2_4bpp)/sizeof(char*); i++) {
+  //  target += a_prg_rbg_0_2w_p2_4bpp[i];
+  //}
+
   Compiler compiler;
   CompileOptions options;
   options.SetOptimizationLevel(shaderc_optimization_level_performance);
+  //options.SetTargetEnvironment(shaderc_target_env_vulkan,shaderc_env_version_vulkan_1_2);
+  //options.SetTargetSpirv(shaderc_spirv_version_1_5);
+  //options.SetGenerateDebugInfo();
   SpvCompilationResult result = compiler.CompileGlslToSpv(
     target,
     shaderc_compute_shader,
@@ -2791,10 +3043,19 @@ void RBGGeneratorVulkan::init(VIDVulkan * vulkan, int width, int height) {
 
   printf("%s%d\n", " erros: ", (int)result.GetNumErrors());
   if (result.GetNumErrors() != 0) {
-    printf("%s%s\n", "messages", result.GetErrorMessage().c_str());
-    throw std::runtime_error("failed to create shader module!");
+     char xerr[256];
+    sprintf(xerr,"%s%s\n", "messages", result.GetErrorMessage().c_str());
+    printf("%s",xerr);
+    LOGE("failed to create shader module!");
+    return -1;
   }
   std::vector<uint32_t> data = { result.cbegin(), result.cend() };
+
+  //std::ofstream file("/storage/emulated/0/Android/data/org.devmiyax.yabasanshioro2.debug/files/bad.spv", std::ios::binary);
+  //if (file.is_open()) {
+  //   file.write(reinterpret_cast<const char*>(data.data()), data.size() * sizeof(uint32_t));
+  //   file.close();
+  //}
 
   VkShaderModuleCreateInfo createInfo = {};
   createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -2802,21 +3063,39 @@ void RBGGeneratorVulkan::init(VIDVulkan * vulkan, int width, int height) {
   createInfo.pCode = data.data();
   VkShaderModule shaderModule;
   if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
-    throw std::runtime_error("failed to create shader module!");
+    //throw std::runtime_error("failed to create shader module!");
+    LOGE("failed to create shader module!");
+    return -1;
   }
 
   pipelineLayout = d.createPipelineLayout({ {}, 1, &descriptorSetLayout });
 
-  vk::ComputePipelineCreateInfo computePipelineCreateInfo;
-  computePipelineCreateInfo.layout = pipelineLayout;
-  computePipelineCreateInfo.stage.module = vk::ShaderModule(shaderModule);
-  computePipelineCreateInfo.stage.stage = vk::ShaderStageFlagBits::eCompute;
-  computePipelineCreateInfo.stage.pName = "main";
-  auto a = d.createComputePipelines(nullptr, computePipelineCreateInfo);
-  pipeline = a.value[0];
+  try {
+    vk::ComputePipelineCreateInfo computePipelineCreateInfo;
+      computePipelineCreateInfo.layout = pipelineLayout;
+      computePipelineCreateInfo.stage.module = vk::ShaderModule(shaderModule);
+      computePipelineCreateInfo.stage.stage = vk::ShaderStageFlagBits::eCompute;
+      computePipelineCreateInfo.stage.pName = "main";
+      auto a = d.createComputePipelines(nullptr, computePipelineCreateInfo);
+      pipeline = a.value[0];
 
-  d.destroyShaderModule(vk::ShaderModule(shaderModule));
-
+      d.destroyShaderModule(vk::ShaderModule(shaderModule));
+  }catch ( vk::SystemError & err )
+  {
+    LOGE("vk::SystemError: %s",err.what());
+    return -1;
+  }
+  catch ( std::exception & err )
+  {
+    LOGE("std::exception: %s",err.what());
+    return -1;
+  }
+  catch ( ... )
+  {
+    LOGE("unknown error\n");
+    return -1;
+  }
+  return 0;
 }
 
 void RBGGeneratorVulkan::updateDescriptorSets( int texindex ) {
@@ -2824,10 +3103,10 @@ void RBGGeneratorVulkan::updateDescriptorSets( int texindex ) {
   VkDevice device = vulkan->getDevice();
   vk::Device d(device);
 
-  if (descriptorSet == (vk::DescriptorSet)nullptr) return;
+  if (descriptorSet[0] == (vk::DescriptorSet)nullptr) return;
 
   vk::DescriptorBufferInfo descriptor;
-  descriptor.buffer = rbgUniform.buf;
+  descriptor.buffer = rbgUniform[currentIndex].buf;
   descriptor.range = VK_WHOLE_SIZE;
   descriptor.offset = 0;
 
@@ -2857,12 +3136,12 @@ void RBGGeneratorVulkan::updateDescriptorSets( int texindex ) {
 
 
   std::vector<vk::WriteDescriptorSet> computeWriteDescriptorSets{
-    { descriptorSet, 0, 0, 1, vk::DescriptorType::eStorageImage, &texDescriptor },
-    { descriptorSet, 1, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &descriptor2 },
-    { descriptorSet, 2, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &descriptor3 },
-    { descriptorSet, 3, 0, 1, vk::DescriptorType::eUniformBuffer, nullptr, &descriptor },
-    { descriptorSet, 4, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &descriptor4 },
-    { descriptorSet, 5, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &descriptor5 },
+    { descriptorSet[currentIndex], 0, 0, 1, vk::DescriptorType::eStorageImage, &texDescriptor },
+    { descriptorSet[currentIndex], 1, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &descriptor2 },
+    { descriptorSet[currentIndex], 2, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &descriptor3 },
+    { descriptorSet[currentIndex], 3, 0, 1, vk::DescriptorType::eUniformBuffer, nullptr, &descriptor },
+    { descriptorSet[currentIndex], 4, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &descriptor4 },
+    { descriptorSet[currentIndex], 5, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &descriptor5 },
   };
 
   
@@ -2914,13 +3193,15 @@ void RBGGeneratorVulkan::resize(int width, int height) {
   imageCreateInfo.arrayLayers = 1;
   imageCreateInfo.tiling = vk::ImageTiling::eOptimal;
   imageCreateInfo.usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eStorage;
-  imageCreateInfo.sharingMode = vk::SharingMode::eConcurrent;
-  imageCreateInfo.queueFamilyIndexCount = 2;
-  uint32_t indexes[] = { vulkan->getVulkanGraphicsQueueFamilyIndex(),vulkan->getVulkanComputeQueueFamilyIndex() };
-  imageCreateInfo.pQueueFamilyIndices = indexes;
+  //imageCreateInfo.sharingMode = vk::SharingMode::eConcurrent;
+  //imageCreateInfo.queueFamilyIndexCount = 2;
+  //uint32_t indexes[] = { vulkan->getVulkanGraphicsQueueFamilyIndex(),vulkan->getVulkanComputeQueueFamilyIndex() };
+  //imageCreateInfo.pQueueFamilyIndices = indexes;
+  imageCreateInfo.sharingMode = vk::SharingMode::eExclusive; //VK_SHARING_MODE_EXCLUSIVE;
+  imageCreateInfo.pQueueFamilyIndices	= nullptr;
 
   for (int i = 0; i < 2; i++) {
-    VK_CHECK_RESULT(d.createImage(&imageCreateInfo, nullptr, &tex_surface[i].image));
+    VK_CHECK_RESULT( VkResult(d.createImage(&imageCreateInfo, nullptr, &tex_surface[i].image)) );
 
     vk::MemoryRequirements memReqs = d.getImageMemoryRequirements(tex_surface[i].image);
     vk::MemoryAllocateInfo memAllocInfo;
@@ -2939,10 +3220,16 @@ void RBGGeneratorVulkan::resize(int width, int height) {
     tex_surface[i].view = d.createImageView(view);
 
     vulkan->transitionImageLayout(VkImage(tex_surface[i].image), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    vulkan->transitionImageLayout(VkImage(tex_surface[i].image), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
   }
 
   updateDescriptorSets(0);
 }
+
+#include <functional>
+#include <fstream>
+#include <iostream>
 
 vk::Pipeline RBGGeneratorVulkan::compile_color_dot(
   const char * base[], int size, const char * color, const char * dot) {
@@ -2960,23 +3247,64 @@ vk::Pipeline RBGGeneratorVulkan::compile_color_dot(
   target += color;
   target += dot;
 
-  Compiler compiler;
-  CompileOptions options;
-  options.SetOptimizationLevel(shaderc_optimization_level_performance);
-  //options.SetOptimizationLevel(shaderc_optimization_level_zero);
-  SpvCompilationResult result = compiler.CompileGlslToSpv(
-    target,
-    shaderc_compute_shader,
-    "RBG",
-    options);
+  std::vector<uint32_t> data;
+  std::vector<char> buffer;
+  SpvCompilationResult result;
+//#if !defined(_WINDOWS)
+  std::size_t hash_value = std::hash<std::string>()(target);
+  // Serach from file
+  string mempath = YuiGetShaderCachePath();
+  std::string hashval = std::to_string(hash_value);
+  string file_path = mempath + hashval + ".spv";
 
-  printf("%s%d\n", " erros: ", (int)result.GetNumErrors());
-  if (result.GetNumErrors() != 0) {
-    printf("%s", target.c_str());
-    printf("%s%s\n", "messages", result.GetErrorMessage().c_str());
-    throw std::runtime_error("failed to create shader module!");
+  // バイナリファイルを読み込む
+  std::ifstream file(file_path, std::ios::binary);
+  if (file) {
+
+    // ファイルサイズを取得する
+    file.seekg(0, std::ios::end);
+    std::size_t file_size = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    // ファイルの内容を読み込む
+    data.resize(file_size / sizeof(uint32_t));
+    file.read(reinterpret_cast<char*>(data.data()), file_size);
+    file.close();
+
   }
-  std::vector<uint32_t> data = { result.cbegin(), result.cend() };
+  else {
+    //#endif
+    Compiler compiler;
+    CompileOptions options;
+    options.SetOptimizationLevel(shaderc_optimization_level_performance);
+    //options.SetOptimizationLevel(shaderc_optimization_level_zero);
+    result = compiler.CompileGlslToSpv(
+      target,
+      shaderc_compute_shader,
+      "RBG",
+      options);
+
+    printf("%s%d\n", " erros: ", (int)result.GetNumErrors());
+    if (result.GetNumErrors() != 0) {
+      printf("%s", target.c_str());
+      printf("%s%s\n", "messages", result.GetErrorMessage().c_str());
+      throw std::runtime_error("failed to create shader module!");
+    }
+    data = { result.cbegin(), result.cend() };
+//#if !defined(_WINDOWS)
+    std::ofstream file(file_path, std::ios::binary);
+    if (!file) {
+        std::cerr << "Error: Failed to open file." << std::endl;
+        throw std::runtime_error("failed to create shader module!");
+    }
+
+    // データを書き込む
+    file.write(reinterpret_cast<char*>(data.data()), data.size() * sizeof(uint32_t));
+
+    // ファイルを閉じる
+    file.close();
+  }
+//#endif
 
   VkShaderModuleCreateInfo createInfo = {};
   createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -2989,16 +3317,27 @@ vk::Pipeline RBGGeneratorVulkan::compile_color_dot(
 
   pipelineLayout = d.createPipelineLayout({ {}, 1, &descriptorSetLayout });
 
-  vk::ComputePipelineCreateInfo computePipelineCreateInfo;
-  computePipelineCreateInfo.layout = pipelineLayout;
-  computePipelineCreateInfo.stage.module = vk::ShaderModule(shaderModule);
-  computePipelineCreateInfo.stage.stage = vk::ShaderStageFlagBits::eCompute;
-  computePipelineCreateInfo.stage.pName = "main";
-  auto a = d.createComputePipelines(nullptr, computePipelineCreateInfo);
-  rtn = a.value[0];
-
-  d.destroyShaderModule(vk::ShaderModule(shaderModule));
-
+  try {
+      vk::ComputePipelineCreateInfo computePipelineCreateInfo;
+      computePipelineCreateInfo.layout = pipelineLayout;
+      computePipelineCreateInfo.stage.module = vk::ShaderModule(shaderModule);
+      computePipelineCreateInfo.stage.stage = vk::ShaderStageFlagBits::eCompute;
+      computePipelineCreateInfo.stage.pName = "main";
+      auto a = d.createComputePipelines(nullptr, computePipelineCreateInfo);
+      rtn = a.value[0];
+      d.destroyShaderModule(vk::ShaderModule(shaderModule));
+  }catch ( vk::SystemError & err )
+  {
+    LOGE("vk::SystemError: %s",err.what());
+  }
+  catch ( std::exception & err )
+  {
+    LOGE("std::exception: %s",err.what());
+  }
+  catch ( ... )
+  {
+    LOGE("unknown error\n");
+  }
   return rtn;
 }
 
@@ -4241,88 +4580,114 @@ void RBGGeneratorVulkan::update(VIDVulkan::RBGDrawInfo * rbg, const vdp2rotation
   }
   rbgUniformParam->hires_shift = rbg->info.hres_shift;
 
-  data = d.mapMemory(rbgUniform.mem, 0, sizeof(*rbgUniformParam));
+  currentIndex = drawCounter&(MAX_RBG_RENDER-1);
+
+  data = d.mapMemory(rbgUniform[currentIndex].mem, 0, sizeof(*rbgUniformParam));
   memcpy(data, rbgUniformParam, sizeof(*rbgUniformParam));
-  d.unmapMemory(rbgUniform.mem);
+  d.unmapMemory(rbgUniform[currentIndex].mem);
 
-  queue.waitIdle();
-
-  //vk::CommandBufferUsageFlagBits::eSimultaneousUse
-
-  updateDescriptorSets(texindex);
-
-  auto c = vk::CommandBuffer(command);
-  c.begin({ vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
-  
-  vk::ImageMemoryBarrier barrierBegin;
-  barrierBegin.oldLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-  barrierBegin.newLayout = vk::ImageLayout::eGeneral;
-  barrierBegin.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  barrierBegin.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  barrierBegin.image = tex_surface[texindex].image;
-  barrierBegin.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-  barrierBegin.subresourceRange.baseMipLevel = 0;
-  barrierBegin.subresourceRange.levelCount = 1;
-  barrierBegin.subresourceRange.baseArrayLayer = 0;
-  barrierBegin.subresourceRange.layerCount = 1;
-  barrierBegin.srcAccessMask = vk::AccessFlagBits::eShaderRead;
-  barrierBegin.dstAccessMask = vk::AccessFlags();
-
-  c.pipelineBarrier(
-    vk::PipelineStageFlagBits::eComputeShader,
-    vk::PipelineStageFlagBits::eComputeShader,
-    vk::DependencyFlags(),
-    0, nullptr,
-    0, nullptr,
-    1, &barrierBegin);
-  
-
-  c.bindPipeline(vk::PipelineBindPoint::eCompute, CurrentPipeline);
-  c.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptorSet, nullptr);
-  c.dispatch(tex_width_ / 16, tex_height_ / 16, 1);
-
-  vk::ImageMemoryBarrier barrier;
-  barrier.oldLayout = vk::ImageLayout::eGeneral;
-  barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  barrier.image = tex_surface[texindex].image;
-  barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-  barrier.subresourceRange.baseMipLevel = 0;
-  barrier.subresourceRange.levelCount = 1;
-  barrier.subresourceRange.baseArrayLayer = 0;
-  barrier.subresourceRange.layerCount = 1;
-  barrier.srcAccessMask = vk::AccessFlags();
-  barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-
-  c.pipelineBarrier(
-    vk::PipelineStageFlagBits::eComputeShader,
-    vk::PipelineStageFlagBits::eComputeShader,
-    vk::DependencyFlags(),
-    0, nullptr,
-    0, nullptr,
-    1, &barrier);
-
-  c.end();
+  try{
+    auto c = vk::CommandBuffer(command[currentIndex]);
     
-  static const std::vector<vk::PipelineStageFlags> waitStages{ vk::PipelineStageFlagBits::eComputeShader };
-  // Submit compute commands
-  vk::SubmitInfo computeSubmitInfo;
-  computeSubmitInfo.commandBufferCount = 1;
-  computeSubmitInfo.pCommandBuffers = &c;
-  //computeSubmitInfo.waitSemaphoreCount = 1;
-  //computeSubmitInfo.pWaitSemaphores = &semaphores.ready;
-  //computeSubmitInfo.pWaitDstStageMask = waitStages.data();
-  computeSubmitInfo.signalSemaphoreCount = 1;
-  computeSubmitInfo.pSignalSemaphores = &semaphores.complete;
-  tex_surface[texindex].rendered = true;
-  queue.submit(computeSubmitInfo, {});
-  
-  
-  //vulkan->transitionImageLayout(VkImage(tex_surface[0].image), 
-  //  VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    vk::Result result;
+    if( drawCounter > 1 ){
+      result = d.waitForFences( commandfence[currentIndex], true, UINT64_MAX );
+      if ( result != vk::Result::eSuccess )
+      {
+          LOGE("Timeout!");
+          //exit( -1 );
+      }  
+      d.resetFences( commandfence[currentIndex] );
+    }
 
+    queue.waitIdle();
+    updateDescriptorSets(texindex);
+    c.reset();
+    c.begin({ vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
+    
+    vk::ImageMemoryBarrier barrierBegin;
+    barrierBegin.oldLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+    barrierBegin.newLayout = vk::ImageLayout::eGeneral;
+    barrierBegin.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrierBegin.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrierBegin.image = tex_surface[texindex].image;
+    barrierBegin.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+    barrierBegin.subresourceRange.baseMipLevel = 0;
+    barrierBegin.subresourceRange.levelCount = 1;
+    barrierBegin.subresourceRange.baseArrayLayer = 0;
+    barrierBegin.subresourceRange.layerCount = 1;
+    barrierBegin.srcAccessMask = vk::AccessFlagBits::eShaderRead;
+    barrierBegin.dstAccessMask = vk::AccessFlags();
+
+    c.pipelineBarrier(
+      vk::PipelineStageFlagBits::eComputeShader,
+      vk::PipelineStageFlagBits::eComputeShader,
+      vk::DependencyFlags(),
+      0, nullptr,
+      0, nullptr,
+      1, &barrierBegin);
+    
+
+    c.bindPipeline(vk::PipelineBindPoint::eCompute, CurrentPipeline);
+    c.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptorSet[currentIndex], nullptr);
+    c.dispatch(tex_width_ / 16, tex_height_ / 16, 1);
+
+    vk::ImageMemoryBarrier barrier;
+    barrier.oldLayout = vk::ImageLayout::eGeneral;
+    barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = tex_surface[texindex].image;
+    barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.srcAccessMask = vk::AccessFlags();
+    barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+
+    c.pipelineBarrier(
+      vk::PipelineStageFlagBits::eComputeShader,
+      vk::PipelineStageFlagBits::eComputeShader,
+      vk::DependencyFlags(),
+      0, nullptr,
+      0, nullptr,
+      1, &barrier);
+
+    c.end();
+      
+    static const std::vector<vk::PipelineStageFlags> waitStages{ vk::PipelineStageFlagBits::eComputeShader };
+    // Submit compute commands
+    vk::SubmitInfo computeSubmitInfo;
+    computeSubmitInfo.commandBufferCount = 1;
+    computeSubmitInfo.pCommandBuffers = &c;
+    //computeSubmitInfo.waitSemaphoreCount = 1;
+    //computeSubmitInfo.pWaitSemaphores = &semaphores.ready;
+    //computeSubmitInfo.pWaitDstStageMask = waitStages.data();
+    computeSubmitInfo.signalSemaphoreCount = 1;
+    computeSubmitInfo.pSignalSemaphores = &semaphores[currentIndex].complete;
+    tex_surface[texindex].rendered = true;
+    queue.submit(computeSubmitInfo, commandfence[currentIndex]);
   }
+  catch ( vk::SystemError & err )
+  {
+    LOGE("vk::SystemError: %s",err.what());
+  }
+  catch ( std::exception & err )
+  {
+    LOGE("std::exception: %s",err.what());
+  }
+  catch ( ... )
+  {
+    LOGE("unknown error\n");
+  }
+    
+  drawCounter++;
+  
+  //vulkan->transitionImageLayout(VkImage(tex_surface[texindex].image), 
+  //  VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+}
 
 VkImageView RBGGeneratorVulkan::getTexture(int id) {
   return static_cast<VkImageView>(tex_surface[id].view);

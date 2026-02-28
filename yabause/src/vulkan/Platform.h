@@ -44,7 +44,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 void InitPlatform();
 void DeInitPlatform();
 void AddRequiredPlatformInstanceExtensions(std::vector<const char *> *instance_extensions);
-
+void AddRequiredPlatformDeviceExtensions(std::vector<const char*>* device_extensions);
 // GLFW
 #if BUILD_USE_GLFW
 
@@ -62,7 +62,7 @@ void AddRequiredPlatformInstanceExtensions(std::vector<const char *> *instance_e
 #elif defined( _WIN32 )
 // this is always defined on windows platform
 
-#define VK_USE_PLATFORM_WIN32_KHR 1
+//#define VK_USE_PLATFORM_WIN32_KHR 1
 #include <windows.h>
 
 #elif defined(__ANDROID__)
@@ -83,6 +83,13 @@ void AddRequiredPlatformInstanceExtensions(std::vector<const char *> *instance_e
 #else
 // platform not yet supported
 #error Platform not yet supported
+#endif
+
+#if defined(HAVE_LIBSDL2) 
+
+#include <SDL.h>
+#include <SDL_vulkan.h>
+
 #endif
 
 #include <vulkan/vulkan.h>

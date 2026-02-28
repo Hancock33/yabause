@@ -40,7 +40,6 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 #include <stdio.h>
 #include <dlfcn.h>
 #include <unistd.h>
-
 #include <jni.h>
 #include <android/native_window.h>     // requires ndk r5 or newer
 #include <android/native_window_jni.h> // requires ndk r5 or newer
@@ -295,6 +294,11 @@ ScreenRecorder gsc;
 #define YUI_LOG yprintf
 //#define YUI_LOG
 
+std::string shaderCachePath;
+const char *YuiGetShaderCachePath(){
+    return shaderCachePath.c_str();
+}
+
 const char *GetBiosPath()
 {
     jclass yclass;
@@ -312,12 +316,39 @@ const char *GetBiosPath()
     yclass = env->GetObjectClass(yabause);
     getBiosPath = env->GetMethodID(yclass, "getBiosPath", "()Ljava/lang/String;");
     message = (jstring)env->CallObjectMethod(yabause, getBiosPath);
+    if( message == nullptr ){
+        rtn = NULL;
+    }else if (env->GetStringLength(message) == 0)
+        rtn = NULL;
+    else
+        rtn = env->GetStringUTFChars(message, &dummy);
+    return rtn;
+}
+
+const char *GetShaderPath()
+{
+    jclass yclass;
+    jmethodID getBiosPath;
+    jstring message;
+    jboolean dummy;
+    JNIEnv *env;
+    const char *rtn;
+
+    if (yvm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
+    {
+        return NULL;
+    }
+
+    yclass = env->GetObjectClass(yabause);
+    getBiosPath = env->GetMethodID(yclass, "getShaderPath", "()Ljava/lang/String;");
+    message = (jstring)env->CallObjectMethod(yabause, getBiosPath);
     if (env->GetStringLength(message) == 0)
         rtn = NULL;
     else
         rtn = env->GetStringUTFChars(message, &dummy);
     return rtn;
 }
+
 
 char *GetPlayDataDir()
 {
@@ -499,7 +530,7 @@ extern "C" const char *GetFileDescriptorPath(const char *fileName)
         return env->GetStringUTFChars(message, &dummy);
 }
 
-void onBackupWrite(char *before, char *after, int size)
+void onBackupWrite(const char *fname, char *before, char *after, int size)
 {
     __android_log_print(ANDROID_LOG_INFO, "yabause", "onBackupWrite is called");
 
@@ -549,14 +580,21 @@ void onBackupWrite(char *before, char *after, int size)
     }
     env->ReleaseByteArrayElements(jniAfter, dst, 0);
 
+    jstring jniFname = env->NewStringUTF(fname);
+    if (jniFname == NULL)
+    {
+        __android_log_print(ANDROID_LOG_ERROR, "yabause", "Failed to NewStringUTF for fname");
+        return;
+    }
+
     yclass = env->GetObjectClass(yabause);
-    jniOnBackupWrite = env->GetMethodID(yclass, "onBackupWrite", "([B[B)V");
+    jniOnBackupWrite = env->GetMethodID(yclass, "onBackupWrite", "(Ljava/lang/String;[B[B)V");
     if (jniOnBackupWrite == NULL)
     {
         __android_log_print(ANDROID_LOG_ERROR, "yabause", "Failed to GetMethodID for onBackupWrite");
         return;
     }
-    env->CallVoidMethod(yabause, jniOnBackupWrite, jniBefore, jniAfter);
+    env->CallVoidMethod(yabause, jniOnBackupWrite, jniFname, jniBefore, jniAfter);
 
     if (yvm->DetachCurrentThread() != JNI_OK)
     {
@@ -846,6 +884,13 @@ extern "C" JNIEXPORT int JNICALL Java_org_uoyabause_android_YabauseRunnable_enab
     BiosSetOnBackupWrite(onBackupWrite);
     return 0;
 }
+
+static int s_isRunning = 0;
+extern "C" JNIEXPORT int JNICALL Java_org_uoyabause_android_YabauseRunnable_isRunning()
+{
+    return s_isRunning;
+}
+
 
 extern "C" JNIEXPORT int JNICALL Java_org_uoyabause_android_YabauseRunnable_lockGL()
 {
@@ -1176,7 +1221,6 @@ extern "C" jint Java_org_uoyabause_android_YabauseRunnable_init(JNIEnv *env, job
         return -1;
 
     yabause = env->NewGlobalRef(yab);
-
     s_biospath = GetBiosPath();
     s_cdpath = GetGamePath();
     s_buppath = GetMemoryPath();
@@ -1185,16 +1229,14 @@ extern "C" jint Java_org_uoyabause_android_YabauseRunnable_init(JNIEnv *env, job
     s_carttype = GetCartridgeType();
     s_player2Enable = GetPlayer2Device();
     s_playdatadir = GetPlayDataDir();
-
-    GetFileDescriptorPath("test");
+    shaderCachePath = string(GetShaderPath());
 
     YUI_LOG("YabauseRunnable_init s_vidcoretype = %d", s_vidcoretype);
 
-    OSDInit(0);
 
     pthread_attr_t tattr;
     pthread_attr_init(&tattr);
-
+    s_isRunning = 1;
     pthread_create(&_threadId, &tattr, threadStartCallback, NULL);
 
     return res;
@@ -1653,12 +1695,14 @@ int destroy()
 {
     YabauseDeInit();
 
-    eglMakeCurrent(g_Display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    eglDestroyContext(g_Display, g_Context_Sub);
-    eglDestroyContext(g_Display, g_Context);
-    eglDestroySurface(g_Display, g_Surface);
-    eglDestroySurface(g_Display, g_Pbuffer);
-    eglTerminate(g_Display);
+    if (s_vidcoretype != VIDCORE_VULKAN){
+        eglMakeCurrent(g_Display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        eglDestroyContext(g_Display, g_Context_Sub);
+        eglDestroyContext(g_Display, g_Context);
+        eglDestroySurface(g_Display, g_Surface);
+        eglDestroySurface(g_Display, g_Pbuffer);
+        eglTerminate(g_Display);
+    }
 
     g_window = 0;
     g_Display = EGL_NO_DISPLAY;
@@ -1676,8 +1720,10 @@ extern "C"
     void
     Java_org_uoyabause_android_YabauseRunnable_deinit(JNIEnv *env)
     {
+        pthread_mutex_lock(&g_mtxGlLock);
         g_msg = MSG_RENDER_LOOP_EXIT;
-        // pthread_join(_threadId,NULL);
+        pthread_mutex_unlock(&g_mtxGlLock);
+        pthread_join(_threadId,NULL);
     }
 
     void
@@ -1867,12 +1913,14 @@ extern "C"
     Java_org_uoyabause_android_YabauseRunnable_setPolygonGenerationMode(JNIEnv *env, jobject obj, jint pgm)
     {
         g_PolygonGenerationMode = pgm;
+        VideoSetSetting(VDP_SETTING_POLYGON_MODE, g_PolygonGenerationMode);
     }
 
     void
     Java_org_uoyabause_android_YabauseRunnable_setAspectRateMode(JNIEnv *env, jobject obj, jint ka)
     {
         g_aspect_rate_mode = ka;
+        VideoSetSetting(VDP_SETTING_ASPECT_RATE_MODE, g_aspect_rate_mode);
     }
 
     void
@@ -2016,8 +2064,8 @@ Java_org_uoyabause_android_YabauseRunnable_screenshot( JNIEnv* env, jobject obj,
     {
         __android_log_print(ANDROID_LOG_INFO, "yabause", "JNI_OnLoad is called");
 
-        JNIEnv *env;
-        if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK)
+        JNIEnv *env = nullptr;
+        if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK)
             return -1;
         yvm = vm;
 
@@ -2222,16 +2270,18 @@ void renderLoop()
             break;
         case MSG_RENDER_LOOP_EXIT:
             YUI_LOG("MSG_RENDER_LOOP_EXIT");
+            pause = 0;
             renderingEnabled = 0;
             destroy();
+            pthread_mutex_unlock(&g_mtxGlLock);
             break;
 
         case MSG_SAVE_STATE:
         {
             int ret;
-            time_t t = time(NULL);
             YUI_LOG("MSG_SAVE_STATE");
 
+            time_t t = time(NULL);
             sprintf(last_state_filename, "%s/%s_%ld.yss", s_savepath, cdip->itemnum, t);
             ret = YabSaveState(last_state_filename);
 
@@ -2244,7 +2294,7 @@ void renderLoop()
         case MSG_LOAD_STATE:
         {
             int rtn;
-            YUI_LOG("MSG_LOAD_STATE");
+            YUI_LOG("MSG_LOAD_STATE %s", s_savepath);
             rtn = YabLoadState(s_savepath);
             switch (rtn)
             {
@@ -2395,6 +2445,8 @@ void renderLoop()
 
     if (context != NULL)
         crashlytics_free(&context);
+
+    s_isRunning = 0;
 }
 
 void *threadStartCallback(void *myself)
@@ -2579,9 +2631,9 @@ int saveScreenshot(const char *filename)
         YUI_LOG("not enough memory\n");
         goto FINISH;
     }
-    
+
     if( pmode == GL_RGBA ){
-        
+
         for( v=(height-1); v>0; v-- ){
             unsigned char * in  = &buf[ v*width*4 ] ;
             unsigned char * out = &bufRGB[ (height-1-v)*width*3 ] ;
@@ -2610,9 +2662,9 @@ int saveScreenshot(const char *filename)
         goto FINISH;
     }
     jpeg_stdio_dest(&cinfo, outfile);
-    cinfo.image_width = width;  
+    cinfo.image_width = width;
     cinfo.image_height = height;
-    cinfo.input_components = 3; 
+    cinfo.input_components = 3;
     cinfo.in_color_space = JCS_RGB;
     jpeg_set_defaults(&cinfo);
     jpeg_set_quality(&cinfo, quality, TRUE);

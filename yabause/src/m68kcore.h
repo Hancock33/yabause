@@ -22,6 +22,10 @@
 
 #include "core.h"
 
+#if defined (__cplusplus)
+extern "C" {
+#endif
+
 #define M68KCORE_DEFAULT -1
 #define M68KCORE_DUMMY    0
 #define M68KCORE_C68K     1
@@ -65,26 +69,8 @@ typedef struct {
 	void (*SetWriteB)(M68K_WRITE *Func);
 	void (*SetWriteW)(M68K_WRITE *Func);
 
-  u32(*GetISP)(void);
-  u32(*GetVBR)(void);
-  u32(*GetSFC)(void);
-  u32(*GetDFC)(void);
-  u32(*GetCACR)(void);
-  u32(*GetCAAR)(void);
-  u32(*GetPPC)(void);
-  u32(*GetIR)(void);
-
-  void(*SetISP)(u32 val);
-  void(*SetVBR)(u32 val);
-  void(*SetSFC)(u32 val);
-  void(*SetDFC)(u32 val);
-  void(*SetCACR)(u32 val);
-  void(*SetCAAR)(u32 val);
-  void(*SetPPC)(u32 val);
-  void(*SetIR)(u32 val);
-
-
-
+   void (*SaveState)(FILE* fp);
+   void (*LoadState)(FILE* fp);
 } M68K_struct;
 
 extern M68K_struct * M68K;
@@ -95,5 +81,9 @@ extern M68K_struct M68KDummy;
 extern M68K_struct M68KC68K;
 extern M68K_struct M68KQ68;
 extern M68K_struct M68KMusashi;
+
+#if defined (__cplusplus)
+}
+#endif
 
 #endif

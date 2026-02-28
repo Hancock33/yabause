@@ -109,7 +109,7 @@ int ScuInit(void) {
    }
 #ifdef ENABLE_DSPLOG
    if (slogp == NULL){
-     slogp = fopen("slog.txt", "w");
+     slogp = fopen_utf8("slog.txt", "w");
    }   
 #endif   
    return 0;
@@ -988,11 +988,11 @@ void dsp_dma08(scudspregs_struct *sc, u32 inst)
 
 void step_dsp_dma(scudspregs_struct *sc) {
 
+  if (sc->ProgControlPort.part.T0 == 0) return;
+
   sc->dsp_dma_wait--;
   if (sc->dsp_dma_wait > 0) return;
 
-  if (sc->ProgControlPort.part.T0 == 0) return;
-  
   if (((sc->dsp_dma_instruction >> 10) & 0x1F) == 0x00)
   {
     dsp_dma01(ScuDsp, sc->dsp_dma_instruction);
@@ -1815,7 +1815,7 @@ void ScuExec(u32 timing) {
                    }
 
                    ScuDsp->dsp_dma_size = Counter;
-                   ScuDsp->dsp_dma_wait = Counter >> 12; // DMA operation will be start when this count is zero
+                   ScuDsp->dsp_dma_wait = 2; // DMA operation will be start when this count is zero
                    ScuDsp->WA0M = ScuDsp->WA0;
                    ScuDsp->RA0M = ScuDsp->RA0;
 
@@ -2507,7 +2507,7 @@ int ScuDspSaveProgram(const char *filename) {
    if (!filename)
       return -1;
 
-   if ((fp = fopen(filename, "wb")) == NULL)
+   if ((fp = fopen_utf8(filename, "wb")) == NULL)
       return -1;
 
    if ((buffer = (u8 *)malloc(sizeof(ScuDsp->ProgramRam))) == NULL)
@@ -2541,7 +2541,7 @@ int ScuDspSaveMD(const char *filename, int num) {
    if (!filename)
       return -1;
 
-   if ((fp = fopen(filename, "wb")) == NULL)
+   if ((fp = fopen_utf8(filename, "wb")) == NULL)
       return -1;
 
    if ((buffer = (u8 *)malloc(sizeof(ScuDsp->MD[num]))) == NULL)
@@ -3201,7 +3201,7 @@ static INLINE void SendInterrupt(u8 vector, u8 level, u16 mask, u32 statusbit) {
 
     ScuRegs->IST |= statusbit;
     //if (vector != 0x41) LOG("INT %d", vector);
-    //LOG("%s(%x) IMS=%08X at frame %d:%d", ScuGetVectorString(vector), vector, ScuRegs->IMS, yabsys.frame_count, yabsys.LineCount);
+    LOG("%s(%x) IMS=%08X at frame %d:%d", ScuGetVectorString(vector), vector, ScuRegs->IMS, yabsys.frame_count, yabsys.LineCount);
     SH2SendInterrupt(MSH2, vector, level);
     if (yabsys.IsSSH2Running) {
       if (vector == 0x42)
